@@ -1,4 +1,4 @@
-# Vardiya Devir Sistemi — v0.4.0
+# SOC Shift System — v0.4.0
 
 NOC / operasyon ekipleri için yapılandırılmış vardiya devir ve raporlama
 platformu. Serbest format e-posta devir alışkanlığını; aranabilir,
