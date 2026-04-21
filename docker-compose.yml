@@ -1,0 +1,73 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-shift}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-shift}
+      POSTGRES_DB: ${POSTGRES_DB:-shift}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-shift}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [shiftnet]
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-shift}:${POSTGRES_PASSWORD:-shift}@db:5432/${POSTGRES_DB:-shift}
+      JWT_SECRET: ${JWT_SECRET:-please-change-me-to-a-long-random-string}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost,http://localhost:5173}
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@example.com}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-admin123}
+      SEED_ADMIN_NAME: ${SEED_ADMIN_NAME:-System Administrator}
+      REPORT_DISPATCH_CRON: ${REPORT_DISPATCH_CRON:-0 7,15,23 * * *}
+      SCHEDULER_TIMEZONE: ${SCHEDULER_TIMEZONE:-Europe/Istanbul}
+      DEFAULT_MAILING_LIST: ${DEFAULT_MAILING_LIST:-ops-team@example.com}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-shift-bot@example.com}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
+      SMTP_USE_SSL: ${SMTP_USE_SSL:-false}
+      # Reminder (planlı giriş için 30 dk önce hatırlatma e-postası)
+      REMINDER_LEAD_MINUTES: ${REMINDER_LEAD_MINUTES:-30}
+      REMINDER_TICK_SECONDS: ${REMINDER_TICK_SECONDS:-60}
+      # IMAP poller (DHS/İYS otomatik girişi). IMAP_HOST boşsa poller devre dışıdır.
+      IMAP_HOST: ${IMAP_HOST:-}
+      IMAP_PORT: ${IMAP_PORT:-993}
+      IMAP_USERNAME: ${IMAP_USERNAME:-}
+      IMAP_PASSWORD: ${IMAP_PASSWORD:-}
+      IMAP_FOLDER: ${IMAP_FOLDER:-INBOX}
+      IMAP_USE_SSL: ${IMAP_USE_SSL:-true}
+      IMAP_POLL_SECONDS: ${IMAP_POLL_SECONDS:-600}
+      IMAP_SUBJECT_DHS_REGEX: ${IMAP_SUBJECT_DHS_REGEX:-(?i)DHS.*?(\\d{1,6})}
+      IMAP_SUBJECT_IYS_REGEX: ${IMAP_SUBJECT_IYS_REGEX:-(?i).Y.*?case.*?(\\d{1,6})}
+    ports:
+      - "8000:8000"
+    networks: [shiftnet]
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+    networks: [shiftnet]
+
+volumes:
+  db_data:
+
+networks:
+  shiftnet:
+    driver: bridge
