@@ -162,6 +162,16 @@ class ReportGenerateRequest(BaseModel):
     scheduled_at: Optional[datetime] = None
 
 
+class ReportUpdate(BaseModel):
+    """Sadece taslak / planlı / başarısız raporlar üzerinde geçerli alanlar."""
+    title: Optional[str] = Field(default=None, max_length=255)
+    summary: Optional[str] = None
+    body_markdown: Optional[str] = None
+    recipients: Optional[List[EmailStr]] = None
+    cc_recipients: Optional[List[EmailStr]] = None
+    scheduled_at: Optional[datetime] = None
+
+
 class ReportOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
@@ -217,6 +227,14 @@ class MailingListCreate(BaseModel):
     shift_type: Optional[ShiftType] = None
 
 
+class MailingListUpdate(BaseModel):
+    name: Optional[str] = None
+    recipients: Optional[str] = None
+    cc_recipients: Optional[str] = None
+    is_default: Optional[bool] = None
+    shift_type: Optional[ShiftType] = None
+
+
 class MailingListOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
@@ -235,6 +253,15 @@ class RosterEntryCreate(BaseModel):
     end_date: date
     shift_label: Optional[str] = Field(default=None, max_length=16)
     notes: Optional[str] = Field(default=None, max_length=512)
+
+
+class RosterEntryUpdate(BaseModel):
+    person_name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    shift_label: Optional[str] = Field(default=None, max_length=16)
+    notes: Optional[str] = Field(default=None, max_length=512)
+    team: Optional[RosterTeam] = None
 
 
 class RosterEntryOut(BaseModel):

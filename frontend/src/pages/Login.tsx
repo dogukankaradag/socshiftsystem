@@ -27,11 +27,11 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-brand-50 to-white px-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-brand-50 to-white dark:from-slate-900 dark:to-slate-800 px-4">
       <form onSubmit={onSubmit} className="card w-full max-w-sm space-y-4">
         <div>
-          <h1 className="text-xl font-semibold text-gray-900">Vardiya Devir Sistemi</h1>
-          <p className="text-sm text-gray-500">Devam etmek için giriş yapın</p>
+          <h1 className="text-xl font-semibold text-gray-900 dark:text-slate-100">Vardiya Devir Sistemi</h1>
+          <p className="text-sm text-gray-500 dark:text-slate-400">Devam etmek için giriş yapın</p>
         </div>
         <div>
           <label className="label">E-posta</label>
@@ -53,11 +53,11 @@ export default function Login() {
             required
           />
         </div>
-        {error && <div className="text-sm text-red-600">{error}</div>}
+        {error && <div className="text-sm text-red-600 dark:text-red-400">{error}</div>}
         <button type="submit" disabled={submitting} className="btn-primary w-full">
           {submitting ? 'Giriş yapılıyor…' : 'Giriş Yap'}
         </button>
-        <p className="text-xs text-gray-400 text-center">
+        <p className="text-xs text-gray-400 dark:text-slate-500 text-center">
           Varsayılan: admin@example.com / admin123 — üretimde mutlaka değiştirin.
         </p>
       </form>

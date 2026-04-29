@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session
 from ..auth import require_operator, require_supervisor
 from ..database import get_db
 from ..models import OnCallRoster, RosterTeam, User
-from ..schemas import RosterEntryCreate, RosterEntryOut, RosterUploadResult
+from ..schemas import RosterEntryCreate, RosterEntryOut, RosterEntryUpdate, RosterUploadResult
 from ..services import audit
 
 log = logging.getLogger(__name__)
@@ -251,6 +251,34 @@ def create_roster(
     db.commit()
     db.refresh(row)
     audit(db, current, "roster.created", "roster", row.id, {"team": row.team.value})
+    return row
+
+
+@router.patch("/{roster_id}", response_model=RosterEntryOut)
+def update_roster(
+    roster_id: int,
+    payload: RosterEntryUpdate,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_supervisor),
+):
+    """Tek bir nöbet satırını günceller (ad, tarih aralığı, vardiya etiketi, not, ekip)."""
+    row = db.query(OnCallRoster).filter(OnCallRoster.id == roster_id).first()
+    if not row:
+        raise HTTPException(404, detail="Kayıt bulunamadı")
+    data = payload.model_dump(exclude_unset=True)
+
+    # Tarih sırası tutarlılık kontrolü: end_date < start_date olamaz.
+    new_start = data.get("start_date", row.start_date)
+    new_end = data.get("end_date", row.end_date)
+    if new_start and new_end and new_end < new_start:
+        raise HTTPException(400, detail="Bitiş tarihi başlangıçtan önce olamaz.")
+
+    for k, v in data.items():
+        setattr(row, k, v)
+    db.commit()
+    db.refresh(row)
+    audit(db, current, "roster.updated", "roster", row.id,
+          {k: (v.isoformat() if hasattr(v, "isoformat") else str(v)) for k, v in data.items()})
     return row
 
 

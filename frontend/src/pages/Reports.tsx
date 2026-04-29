@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   api,
@@ -13,6 +13,20 @@ import {
 } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 
+function splitListInput(v: string): string[] {
+  return v
+    .split(/[,;\s]+/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+function isoToLocalInput(iso: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const tr = new Date(d.getTime() + 3 * 60 * 60 * 1000);
+  return tr.toISOString().slice(0, 16);
+}
+
 const STATUS_CLASS: Record<ReportStatus, string> = {
   draft: 'bg-gray-100 text-gray-700',
   scheduled: 'bg-blue-100 text-blue-800',
@@ -20,12 +34,8 @@ const STATUS_CLASS: Record<ReportStatus, string> = {
   failed: 'bg-red-100 text-red-800',
 };
 
-function splitList(v: string): string[] {
-  return v
-    .split(/[,;\s]+/)
-    .map((x) => x.trim())
-    .filter(Boolean);
-}
+// Geriye dönük uyum: alttaki kodlar splitList kullanıyor.
+const splitList = splitListInput;
 
 export default function Reports() {
   const { user } = useAuth();
@@ -35,6 +45,7 @@ export default function Reports() {
   const [reports, setReports] = useState<Report[]>([]);
   const [working, setWorking] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [editing, setEditing] = useState<Report | null>(null);
 
   // Son aşamada A/B/C hangi vardiya raporu oluşturulacağı seçilir.
   // Varsayılan olarak geçerli saate göre (GMT+3) tahmin edilir.
@@ -126,6 +137,28 @@ export default function Reports() {
     try {
       await api.post(`/reports/${id}/cancel-schedule`);
       load();
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  async function deleteReport(r: Report) {
+    if (r.status === 'dispatched') {
+      alert('Gönderilmiş rapor denetim kaydı için silinemez.');
+      return;
+    }
+    if (
+      !confirm(
+        `Rapor #${r.id} silinecek (${REPORT_STATUS_LABEL[r.status]}). Onaylıyor musunuz?`,
+      )
+    )
+      return;
+    setWorking(true);
+    try {
+      await api.delete(`/reports/${r.id}`);
+      load();
+    } catch (err: any) {
+      alert(err?.response?.data?.detail || 'Silme başarısız');
     } finally {
       setWorking(false);
     }
@@ -304,7 +337,7 @@ export default function Reports() {
                   <td className="px-4 py-2 text-gray-500">
                     {new Date(r.created_at).toLocaleString('tr-TR')}
                   </td>
-                  <td className="px-4 py-2 text-right space-x-2">
+                  <td className="px-4 py-2 text-right space-x-2 whitespace-nowrap">
                     {canGenerate && r.status === 'scheduled' && (
                       <button
                         className="btn-ghost text-xs"
@@ -323,6 +356,14 @@ export default function Reports() {
                           Gönder
                         </button>
                       )}
+                    {canGenerate && r.status !== 'dispatched' && (
+                      <button
+                        className="btn-ghost text-xs"
+                        onClick={() => setEditing(r)}
+                      >
+                        Düzenle
+                      </button>
+                    )}
                     <button
                       className="btn-ghost text-xs"
                       onClick={() =>
@@ -331,6 +372,14 @@ export default function Reports() {
                     >
                       PDF
                     </button>
+                    {canGenerate && r.status !== 'dispatched' && (
+                      <button
+                        className="btn-ghost text-xs text-red-600"
+                        onClick={() => deleteReport(r)}
+                      >
+                        Sil
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -338,6 +387,169 @@ export default function Reports() {
           </table>
         )}
       </div>
+
+      {editing && (
+        <ReportEditModal
+          report={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
+            load();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ReportEditModal({
+  report,
+  onClose,
+  onSaved,
+}: {
+  report: Report;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [title, setTitle] = useState(report.title);
+  const [summary, setSummary] = useState(report.summary || '');
+  const [body, setBody] = useState(report.body_markdown || '');
+  const [recipients, setRecipients] = useState(report.recipients || '');
+  const [ccRecipients, setCcRecipients] = useState(report.cc_recipients || '');
+  const [scheduledAt, setScheduledAt] = useState(isoToLocalInput(report.scheduled_at));
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setErr(null);
+    setSaving(true);
+    try {
+      const payload: any = {
+        title,
+        summary,
+        body_markdown: body,
+      };
+      const toList = splitListInput(recipients);
+      const ccList = splitListInput(ccRecipients);
+      payload.recipients = toList.length ? toList : null;
+      payload.cc_recipients = ccList.length ? ccList : null;
+      // scheduledAt: '' -> null (planlamayı kaldır), dolu -> backend GMT+3 -> UTC
+      payload.scheduled_at = scheduledAt || null;
+
+      await api.patch(`/reports/${report.id}`, payload);
+      onSaved();
+    } catch (e: any) {
+      setErr(e?.response?.data?.detail || 'Güncelleme başarısız');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <form
+        onSubmit={submit}
+        className="bg-white rounded-lg shadow-xl w-full max-w-2xl p-5 space-y-3 max-h-[90vh] overflow-y-auto"
+      >
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold text-gray-900">
+            Raporu Düzenle — #{report.id}
+          </h2>
+          <button type="button" className="text-gray-500" onClick={onClose}>
+            ✕
+          </button>
+        </div>
+
+        <div>
+          <label className="label">Başlık</label>
+          <input
+            className="input"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            required
+            maxLength={255}
+          />
+        </div>
+
+        <div>
+          <label className="label">Özet</label>
+          <textarea
+            className="input min-h-[80px]"
+            value={summary}
+            onChange={(e) => setSummary(e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label className="label">Gövde (Markdown)</label>
+          <textarea
+            className="input min-h-[200px] font-mono text-xs"
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            HTML/PDF önbelleği temizlenir; bir sonraki önizlemede yeniden render
+            edilir.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="label">TO Alıcıları (virgülle)</label>
+            <input
+              className="input"
+              value={recipients}
+              onChange={(e) => setRecipients(e.target.value)}
+              placeholder="ops@sirket.com, noc@sirket.com"
+            />
+          </div>
+          <div>
+            <label className="label">CC Alıcıları (opsiyonel)</label>
+            <input
+              className="input"
+              value={ccRecipients}
+              onChange={(e) => setCcRecipients(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="label">Planlama (GMT+3, opsiyonel)</label>
+          <div className="flex gap-2">
+            <input
+              type="datetime-local"
+              className="input"
+              value={scheduledAt}
+              onChange={(e) => setScheduledAt(e.target.value)}
+            />
+            {scheduledAt && (
+              <button
+                type="button"
+                className="btn-ghost text-xs"
+                onClick={() => setScheduledAt('')}
+              >
+                Planlamayı kaldır
+              </button>
+            )}
+          </div>
+          <p className="text-xs text-gray-500 mt-1">
+            Boş bırakılırsa planlama iptal edilir; durum "taslak"a düşer.
+            Tarih girilirse durum "zamanlandı"ya yükselir.
+          </p>
+        </div>
+
+        {err && <div className="text-sm text-red-600">{err}</div>}
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" className="btn-ghost" onClick={onClose}>
+            İptal
+          </button>
+          <button type="submit" className="btn-primary" disabled={saving}>
+            {saving ? 'Kaydediliyor…' : 'Kaydet'}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

@@ -76,7 +76,7 @@ export default function NewEntry() {
 
   return (
     <div className="max-w-2xl space-y-4">
-      <h1 className="text-2xl font-semibold text-gray-900">Yeni Vardiya Girişi</h1>
+      <h1 className="text-2xl font-semibold text-gray-900 dark:text-slate-100">Yeni Vardiya Girişi</h1>
       <form onSubmit={onSubmit} className="card space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <div>
@@ -109,7 +109,7 @@ export default function NewEntry() {
               value={occursAt}
               onChange={(e) => setOccursAt(e.target.value)}
             />
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
               Olay ileride bir tarihte gerçekleşecekse saat (GMT+3) seçin.
               Tarih gelene kadar tüm vardiya raporlarında hatırlatılır.
             </p>
@@ -129,7 +129,7 @@ export default function NewEntry() {
               required
               placeholder="örn. 11"
             />
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
               Bu vardiyada işlem yapılan {ENTRY_TYPE_LABEL[entryType]} case sayısını girin.
             </p>
           </div>
@@ -146,7 +146,7 @@ export default function NewEntry() {
           </div>
         )}
 
-        {error && <div className="text-sm text-red-600">{error}</div>}
+        {error && <div className="text-sm text-red-600 dark:text-red-400">{error}</div>}
         <div className="flex gap-2 justify-end">
           <button type="button" className="btn-ghost" onClick={() => nav(-1)}>
             İptal

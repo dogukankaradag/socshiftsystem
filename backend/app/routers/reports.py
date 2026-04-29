@@ -11,7 +11,7 @@ from ..config import get_settings
 from ..database import get_db
 from ..export import report_to_pdf
 from ..models import Entry, Report, ReportStatus, Shift, User
-from ..schemas import ReportGenerateRequest, ReportOut
+from ..schemas import ReportGenerateRequest, ReportOut, ReportUpdate
 from ..services import audit, dispatch_report, generate_report, resolve_recipients
 
 router = APIRouter(prefix="/reports", tags=["reports"])
@@ -120,6 +120,102 @@ async def dispatch(report_id: int, db: Session = Depends(get_db),
         shift = db.query(Shift).filter(Shift.id == report.shift_id).first()
         to_list, cc_list = resolve_recipients(db, shift) if shift else ([], [])
     return await dispatch_report(db, report, to_list, cc_list, actor=current)
+
+
+@router.patch("/{report_id}", response_model=ReportOut)
+def update_report(
+    report_id: int,
+    payload: ReportUpdate,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_supervisor),
+):
+    """Taslak / planlı / başarısız raporun başlık, gövde, alıcı veya planlama
+    saatini günceller. Gönderilmiş raporlar değiştirilemez."""
+    report = db.query(Report).filter(Report.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Rapor bulunamadı")
+    if report.status == ReportStatus.dispatched:
+        raise HTTPException(
+            status_code=400,
+            detail="Gönderilmiş rapor değiştirilemez. Yeni bir rapor oluşturun.",
+        )
+
+    data = payload.model_dump(exclude_unset=True)
+    audit_payload: dict = {}
+
+    if "title" in data and data["title"] is not None:
+        report.title = data["title"]
+        audit_payload["title"] = data["title"]
+    if "summary" in data and data["summary"] is not None:
+        report.summary = data["summary"]
+        audit_payload["summary_len"] = len(data["summary"])
+    if "body_markdown" in data and data["body_markdown"] is not None:
+        report.body_markdown = data["body_markdown"]
+        # body_html cache'ini düşür ki PDF/preview yeniden render olsun
+        report.body_html = None
+        audit_payload["body_markdown_len"] = len(data["body_markdown"])
+    if "recipients" in data:
+        if data["recipients"] is None:
+            report.recipients = None
+        else:
+            report.recipients = ",".join(str(e) for e in data["recipients"])
+        audit_payload["recipients"] = report.recipients
+    if "cc_recipients" in data:
+        if data["cc_recipients"] is None:
+            report.cc_recipients = None
+        else:
+            report.cc_recipients = ",".join(str(e) for e in data["cc_recipients"])
+        audit_payload["cc_recipients"] = report.cc_recipients
+    if "scheduled_at" in data:
+        if data["scheduled_at"] is None:
+            report.scheduled_at = None
+            # planlama düşürüldüyse statüyü taslağa çevir
+            if report.status == ReportStatus.scheduled:
+                report.status = ReportStatus.draft
+        else:
+            sched = data["scheduled_at"]
+            if sched.tzinfo is None:
+                sched = _to_utc(sched)
+            else:
+                sched = sched.astimezone(timezone.utc)
+            report.scheduled_at = sched
+            # planlama eklendiyse statüyü scheduled'a yükselt (failed/draft'tan)
+            if report.status in (ReportStatus.draft, ReportStatus.failed):
+                report.status = ReportStatus.scheduled
+        audit_payload["scheduled_at"] = (
+            report.scheduled_at.isoformat() if report.scheduled_at else None
+        )
+
+    db.commit()
+    db.refresh(report)
+    audit(db, current, "report.updated", "report", report.id, audit_payload)
+    return report
+
+
+@router.delete("/{report_id}", status_code=204)
+def delete_report(
+    report_id: int,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_supervisor),
+):
+    """Raporu siler. Gönderilmiş raporlar denetim izi için silinemez —
+    bu durumda kullanıcı bunu süpervizör/admine açıkça bildirir."""
+    report = db.query(Report).filter(Report.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Rapor bulunamadı")
+    if report.status == ReportStatus.dispatched:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Gönderilmiş rapor silinemez (denetim kaydı). "
+                "Lütfen yeni bir rapor düzeltmesi yayımlayın."
+            ),
+        )
+    status_value = report.status.value if hasattr(report.status, "value") else str(report.status)
+    db.delete(report)
+    db.commit()
+    audit(db, current, "report.deleted", "report", report_id, {"status": status_value})
+    return None
 
 
 @router.post("/{report_id}/cancel-schedule", response_model=ReportOut)

@@ -34,6 +34,7 @@ export default function Roster() {
   const [showAdd, setShowAdd] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [editing, setEditing] = useState<RosterEntry | null>(null);
 
   // filters
   const [from, setFrom] = useState<string>('');
@@ -237,6 +238,17 @@ export default function Roster() {
         />
       )}
 
+      {editing && canEdit && (
+        <EditRosterModal
+          entry={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
+            load();
+          }}
+        />
+      )}
+
       <div className="card p-0 overflow-hidden">
         {loading ? (
           <div className="p-6 text-gray-500">Yükleniyor…</div>
@@ -296,9 +308,15 @@ export default function Roster() {
                           {r.notes || '—'}
                         </td>
                         {canEdit && (
-                          <td className="px-4 py-2 text-right">
+                          <td className="px-4 py-2 text-right whitespace-nowrap space-x-2">
                             <button
-                              className="btn-ghost text-xs"
+                              className="text-xs text-gray-700 hover:text-brand-700"
+                              onClick={() => setEditing(r)}
+                            >
+                              Düzenle
+                            </button>
+                            <button
+                              className="text-xs text-red-600 hover:underline"
                               onClick={() => deleteOne(r.id)}
                             >
                               Sil
@@ -420,5 +438,139 @@ function AddRosterForm({
         </button>
       </div>
     </form>
+  );
+}
+
+function EditRosterModal({
+  entry,
+  onClose,
+  onSaved,
+}: {
+  entry: RosterEntry;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [team, setTeam] = useState<RosterTeam>(entry.team);
+  const [personName, setPersonName] = useState(entry.person_name);
+  const [startDate, setStartDate] = useState(entry.start_date);
+  const [endDate, setEndDate] = useState(entry.end_date);
+  const [shiftLabel, setShiftLabel] = useState(entry.shift_label || '');
+  const [notes, setNotes] = useState(entry.notes || '');
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setErr(null);
+    setSaving(true);
+    try {
+      await api.patch(`/roster/${entry.id}`, {
+        team,
+        person_name: personName.trim(),
+        start_date: startDate,
+        end_date: endDate || startDate,
+        shift_label: shiftLabel.trim() || null,
+        notes: notes.trim() || null,
+      });
+      onSaved();
+    } catch (e: any) {
+      setErr(e?.response?.data?.detail || 'Güncelleme başarısız');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <form
+        onSubmit={submit}
+        className="bg-white rounded-lg shadow-xl w-full max-w-lg p-5 space-y-3"
+      >
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold text-gray-900">
+            Nöbet Kaydını Düzenle — #{entry.id}
+          </h2>
+          <button type="button" className="text-gray-500" onClick={onClose}>
+            ✕
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="label">Ekip</label>
+            <select
+              className="input"
+              value={team}
+              onChange={(e) => setTeam(e.target.value as RosterTeam)}
+            >
+              {(['l2', 'mssp'] as RosterTeam[]).map((t) => (
+                <option key={t} value={t}>
+                  {ROSTER_TEAM_LABEL[t]}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label">Ad Soyad</label>
+            <input
+              className="input"
+              value={personName}
+              onChange={(e) => setPersonName(e.target.value)}
+              required
+            />
+          </div>
+          <div>
+            <label className="label">Başlangıç Tarihi</label>
+            <input
+              type="date"
+              className="input"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              required
+            />
+          </div>
+          <div>
+            <label className="label">Bitiş Tarihi</label>
+            <input
+              type="date"
+              className="input"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+            />
+          </div>
+          {team === 'mssp' && (
+            <div>
+              <label className="label">Vardiya Etiketi (A/B/C)</label>
+              <input
+                className="input"
+                maxLength={16}
+                value={shiftLabel}
+                onChange={(e) => setShiftLabel(e.target.value)}
+              />
+            </div>
+          )}
+          <div className="md:col-span-2">
+            <label className="label">Not</label>
+            <input
+              className="input"
+              maxLength={512}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
+          </div>
+        </div>
+
+        {err && <div className="text-sm text-red-600">{err}</div>}
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" className="btn-ghost" onClick={onClose}>
+            İptal
+          </button>
+          <button type="submit" className="btn-primary" disabled={saving}>
+            {saving ? 'Kaydediliyor…' : 'Kaydet'}
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }

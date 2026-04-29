@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
-from ..auth import require_operator, require_supervisor
+from ..auth import require_operator
 from ..database import get_db
 from ..export import entries_to_csv
 from ..models import Entry, EntryType, NUMERIC_ENTRY_TYPES, Shift, User
@@ -61,6 +61,15 @@ def list_entries(
     since: Optional[datetime] = None,
     until: Optional[datetime] = None,
     include_duplicates: bool = True,
+    hide_past_scheduled: bool = Query(
+        False,
+        description=(
+            "true ise, occurs_at zamanı geçmiş (geçmişte planlanmış) girişler "
+            "listeden çıkarılır. occurs_at boş olanlar ve gelecek tarihliler "
+            "etkilenmez. Panel görünümünü sadeleştirmek için kullanılır; "
+            "analitik/CSV export ham veriyi kullanmaya devam eder."
+        ),
+    ),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
@@ -80,6 +89,12 @@ def list_entries(
         query = query.filter(or_(Entry.title.ilike(like), Entry.body.ilike(like)))
     if not include_duplicates:
         query = query.filter(Entry.is_duplicate_of.is_(None))
+    if hide_past_scheduled:
+        # occurs_at NULL (zaman bilgisi olmayanlar) veya occurs_at >= now
+        # (zamanı henüz gelmemiş/yaklaşan planlı işler) görünür kalır.
+        # occurs_at < now (zamanı geçmiş planlamalar) gizlenir.
+        now = datetime.now(timezone.utc)
+        query = query.filter(or_(Entry.occurs_at.is_(None), Entry.occurs_at >= now))
 
     rows = query.order_by(Entry.created_at.desc()).offset(offset).limit(limit).all()
     return [_to_out(e) for e in rows]
@@ -152,11 +167,12 @@ def create_entry(payload: EntryCreate, db: Session = Depends(get_db),
 @router.patch("/{entry_id}", response_model=EntryOut)
 def update_entry(entry_id: int, payload: EntryUpdate, db: Session = Depends(get_db),
                  current: User = Depends(require_operator)):
+    """Vardiya girişini günceller. Tüm yetkili (operatör+) kullanıcılar
+    birbirlerinin girişlerini düzenleyebilir; her değişiklik audit log'a
+    yazıldığı için sorumluluk her zaman izlenebilir."""
     entry = db.query(Entry).filter(Entry.id == entry_id).first()
     if not entry:
         raise HTTPException(status_code=404, detail="Entry not found")
-    if entry.author_id != current.id and current.role.value == "operator":
-        raise HTTPException(status_code=403, detail="Cannot edit another user's entry")
     data = payload.model_dump(exclude_unset=True)
     if "occurs_at" in data:
         data["occurs_at"] = _ensure_utc(data["occurs_at"])
@@ -167,20 +183,32 @@ def update_entry(entry_id: int, payload: EntryUpdate, db: Session = Depends(get_
         setattr(entry, k, v)
     db.commit()
     db.refresh(entry)
-    audit(db, current, "entry.updated", "entry", entry.id,
-          {k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in data.items()})
+    audit_payload = {
+        "by_author": entry.author_id == current.id,
+        "fields": {k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in data.items()},
+    }
+    audit(db, current, "entry.updated", "entry", entry.id, audit_payload)
     return _to_out(entry)
 
 
 @router.delete("/{entry_id}", status_code=204)
 def delete_entry(entry_id: int, db: Session = Depends(get_db),
-                 current: User = Depends(require_supervisor)):
+                 current: User = Depends(require_operator)):
+    """Vardiya girişini siler. Tüm operatörler birbirlerinin girişini
+    silebilir (vardiya devir sürecinde planlama değişiklikleri için).
+    Her silme audit log'a yazılır, böylece denetim mümkündür."""
     entry = db.query(Entry).filter(Entry.id == entry_id).first()
     if not entry:
         raise HTTPException(status_code=404, detail="Entry not found")
+    type_value = entry.entry_type.value if hasattr(entry.entry_type, "value") else str(entry.entry_type)
+    audit_payload = {
+        "type": type_value,
+        "original_author_id": entry.author_id,
+        "by_author": entry.author_id == current.id,
+    }
     db.delete(entry)
     db.commit()
-    audit(db, current, "entry.deleted", "entry", entry_id)
+    audit(db, current, "entry.deleted", "entry", entry_id, audit_payload)
     return None
 
 

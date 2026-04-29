@@ -1,4 +1,4 @@
-# SOC Shift System — v0.4.0
+# Vardiya Devir Sistemi — v0.5.2
 
 NOC / operasyon ekipleri için yapılandırılmış vardiya devir ve raporlama
 platformu. Serbest format e-posta devir alışkanlığını; aranabilir,
@@ -27,6 +27,8 @@ denetlenebilir ve zamanlanmış otomatik raporlamaya taşır.
 | IMAP entegrasyonu          | DHS / İYS maillerinden otomatik giriş (on-prem IMAP / Exchange) — manuel giriş yine mümkün |
 | Nöbetçi Listesi            | L2 + MSSP aylık vardiya çizelgesi; XLSX / PDF yükle + otomatik parse |
 | Rapor başlığı              | Varsayılan: "MSSP Vardiya Raporu — X Vardiyası (tarih)" — UI'dan override edilir |
+| Düzenleme & silme          | Girişler, raporlar (gönderilmeden), olaylar, nöbet kayıtları, kullanıcılar ve mail listeleri için satır içi **Düzenle / Sil** + onay diyaloğu. Tüm operatörler birbirinin girişini düzenleyebilir/silebilir (her aksiyon audit log'a yazılır) |
+| Tema                       | Aydınlık / karanlık mod toggle'ı; tercih `localStorage`'da saklanır, sistem temasını fallback olarak kullanır |
 | Olay yönetimi              | açık → devam ediyor → çözüldü → kapalı                            |
 | Rapor özeti                | Yerel (heuristik) özetleyici — harici LLM yok                     |
 | Mükerrer tespiti           | Vardiya bazlı SequenceMatcher tabanlı benzerlik                   |
@@ -80,6 +82,25 @@ başlatırsanız `invalid input value for enum ...` hatası alırsınız.
   nöbetçi çizelgeleri) ve `RosterTeam` enum'ı eklendi. IMAP poller ve 30 dk
   hatırlatma scheduler job'ları eklendi. Rapor mail konusu varsayılan olarak
   "MSSP Vardiya Raporu — X Vardiyası (tarih)" formatına alındı.
+* v0.4 → v0.5: **Şema değişikliği yok.** Yalnızca yeni `PATCH` / `DELETE`
+  uç noktaları (raporlar, mail listeleri, nöbet kayıtları) ve UI'da
+  satır içi düzenle/sil butonları + modallar eklendi. Mevcut volume ile
+  sorunsuz yükseltilebilir; sadece `docker compose build && docker compose up -d`
+  yeterlidir.
+* v0.5.0 → v0.5.1: **Şema değişikliği yok.** `entries` PATCH/DELETE artık
+  `require_operator` ile koruyor — tüm operatörler birbirinin girişini
+  düzenleyebilir/silebilir (sorumluluk audit log üzerinden izlenir). Aydınlık /
+  karanlık tema toggle'ı eklendi (Tailwind `class` stratejisi, header'da
+  ay/güneş ikonu, `localStorage` ile kalıcı). Yine sadece `docker compose
+  build && docker compose up -d` yeterlidir.
+* v0.5.1 → v0.5.2: **Şema değişikliği yok.** `GET /entries` artık
+  `hide_past_scheduled` query parametresini destekliyor; Panel sayfasındaki
+  "Aktif girişler" listesi bu parametreyi kullanarak `occurs_at` zamanı
+  geçmiş planlamaları gizler. Yalnızca zamanı henüz gelmemiş veya zaman
+  bilgisi girilmemiş girişler görünür. Analitik ve CSV export ham veriyi
+  kullanmaya devam eder, dolayısıyla tür bazlı sayım/raporlamalar
+  etkilenmez. Yine sadece `docker compose build && docker compose up -d`
+  yeterlidir.
 
 Bu yüzden eski volume'u temizlemek gerekir:
 
@@ -214,8 +235,12 @@ ezilir; sabit şablon değiştirmek istenmediği sürece boş bırakılır.
 | POST   | `/api/auth/login-json`                  | public       | SPA için JSON login                             |
 | GET    | `/api/shifts/current`                   | operator+    | Açık vardiya yoksa otomatik açar                |
 | POST   | `/api/entries`                          | operator+    | Aktif vardiyaya giriş ekler                     |
+| PATCH  | `/api/entries/{id}`                     | operator+ (kendi) / supervisor+ | Giriş düzenle (`occurs_at` değişirse hatırlatma resetlenir) |
+| DELETE | `/api/entries/{id}`                     | supervisor+  | Giriş sil                                        |
 | GET    | `/api/entries/export.csv`               | operator+    | CSV indirme                                      |
 | POST   | `/api/reports/generate`                 | supervisor+  | `{shift_id, to_recipients, cc_recipients, scheduled_at?, dispatch?}` |
+| PATCH  | `/api/reports/{id}`                     | supervisor+  | Başlık / gövde / alıcı / planlama düzenle (gönderilmiş raporlar hariç) |
+| DELETE | `/api/reports/{id}`                     | supervisor+  | Taslak / planlı / başarısız raporu sil (gönderilmiş silinemez) |
 | POST   | `/api/reports/{id}/dispatch`            | supervisor+  | Mevcut taslağı gönder                           |
 | POST   | `/api/reports/{id}/cancel-schedule`     | supervisor+  | Planlamayı iptal et                             |
 | GET    | `/api/reports/{id}/export.pdf`          | operator+    | PDF                                              |
@@ -224,8 +249,11 @@ ezilir; sabit şablon değiştirmek istenmediği sürece boş bırakılır.
 | GET    | `/api/roster?team=l2\|mssp`             | operator+    | Nöbetçi listesi okuma                           |
 | POST   | `/api/roster/upload` (multipart)        | supervisor+  | XLSX / PDF yükle → otomatik parse → toplu ekle  |
 | POST   | `/api/roster` + `DELETE /api/roster/{id}` | supervisor+ | Manuel satır ekleme / silme                     |
+| PATCH  | `/api/roster/{id}`                      | supervisor+  | Tek nöbet kaydını düzenle                       |
 | DELETE | `/api/roster/batch/{upload_batch}`      | supervisor+  | Bir yükleme grubunu toplu sil                   |
-| `*`    | `/api/users`, `/api/mailing-lists`      | admin        | Yönetim                                          |
+| PATCH  | `/api/incidents/{id}` + `DELETE`        | operator+ / supervisor+ | Olay düzenle / sil                     |
+| PATCH  | `/api/mailing-lists/{id}`               | admin        | Mail listesini düzenle (varsayılanı tek tıkla devret) |
+| `*`    | `/api/users`, `/api/mailing-lists`      | admin        | Yönetim (deactivate / reactivate dahil)         |
 
 Tüm endpoint'ler `/api/docs` altında Swagger ile gezilebilir.
 
