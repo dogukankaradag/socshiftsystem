@@ -4,6 +4,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import Admin from './pages/Admin';
 import Analytics from './pages/Analytics';
 import Dashboard from './pages/Dashboard';
+import Distributors from './pages/Distributors';
 import Incidents from './pages/Incidents';
 import Login from './pages/Login';
 import NewEntry from './pages/NewEntry';
@@ -28,6 +29,7 @@ export default function App() {
         <Route path="/reports" element={<Reports />} />
         <Route path="/reports/:id" element={<ReportDetail />} />
         <Route path="/roster" element={<Roster />} />
+        <Route path="/distributors" element={<Distributors />} />
         <Route path="/analytics" element={<Analytics />} />
         <Route
           path="/admin"

@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   api,
   AnalyticsOverview,
@@ -11,6 +11,7 @@ import {
   SHIFT_TYPE_LABEL,
 } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import ResolveScheduledModal from '../components/ResolveScheduledModal';
 
 function entryDisplayBody(e: Entry): string {
   if (NUMERIC_ENTRY_TYPES.includes(e.entry_type) && e.numeric_value != null) {
@@ -48,6 +49,7 @@ function localInputToUtcIso(v: string): string | null {
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   // Tüm operatörler birbirinin girişini düzenleyebilir/silebilir
   // (vardiya devri sırasında plan değişiklikleri için). Her aksiyon
   // audit log'a yazıldığı için sorumluluk korunur.
@@ -57,29 +59,36 @@ export default function Dashboard() {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [upcoming, setUpcoming] = useState<Entry[]>([]);
   const [overview, setOverview] = useState<AnalyticsOverview | null>(null);
+  const [pendingCount, setPendingCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Entry | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
+  // Bekleyen kararlar modalı: 'banner' = panelden açıldı, 'report' = "Rapor
+  // oluştur" linkinden açıldı (kararlar bitince Reports sayfasına yönlendir).
+  const [resolveOpen, setResolveOpen] = useState<null | 'banner' | 'report'>(null);
 
   async function load() {
     setLoading(true);
     try {
       const s = await api.get('/shifts/current');
       setShift(s.data);
-      const [e, u, o] = await Promise.all([
+      const [e, u, o, p] = await Promise.all([
         // Panel sade kalsın diye zamanı geçmiş planlamaları gizliyoruz.
         // Sadece occurs_at boş olanlar + henüz zamanı gelmemiş olanlar görünür.
-        // Analitik sayfası ham veriyi kullanmaya devam eder.
+        // Analitik sayfası ham veriyi kullanmaya devam eder. Bekleyen
+        // (geçmiş planlı DDoS Taşıma + Bilgi) girişler ayrı banner'da gösterilir.
         api.get('/entries', {
           params: { shift_id: s.data.id, limit: 20, hide_past_scheduled: true },
         }),
         api.get('/entries/upcoming', { params: { limit: 10 } }),
         api.get('/analytics/overview'),
+        api.get<Entry[]>('/entries/pending-resolution'),
       ]);
       setEntries(e.data);
       setUpcoming(u.data);
       setOverview(o.data);
+      setPendingCount(p.data.length);
     } catch (err: any) {
       setError(err?.response?.data?.detail || 'Yüklenemedi');
     } finally {
@@ -129,6 +138,28 @@ export default function Dashboard() {
           + Yeni Giriş
         </Link>
       </div>
+
+      {pendingCount > 0 && (
+        <div className="card flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-l-4 border-amber-400 dark:border-amber-500">
+          <div className="flex-1">
+            <div className="font-semibold text-amber-900 dark:text-amber-200">
+              {pendingCount} bekleyen karar var
+            </div>
+            <p className="text-xs text-gray-600 dark:text-slate-300 mt-0.5">
+              Bir önceki vardiyadan kalmış, tarihi geçmiş DDoS Taşıma ve Bilgi
+              girişleri var. Yeni vardiya raporundan önce her biri için karar verin
+              (tamamlandı / yeni tarih / tarih belli değil).
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn-primary text-sm shrink-0"
+            onClick={() => setResolveOpen('banner')}
+          >
+            Karar Ver
+          </button>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <StatCard label="Bu vardiya girişleri" value={shift?.entry_count ?? 0} />
@@ -192,12 +223,21 @@ export default function Dashboard() {
               görünür. Geçmiş planlamalar Analitik sayfasında sayılmaya devam eder.
             </p>
           </div>
-          <Link
-            to="/reports"
-            className="text-sm text-brand-700 hover:underline dark:text-brand-400 shrink-0 mt-0.5"
+          <button
+            type="button"
+            onClick={() => {
+              // Bekleyen karar varsa önce modalı aç; modal "tüm kararlar
+              // bitti" sinyalini verirse Reports sayfasına yönlendiririz.
+              if (pendingCount > 0) {
+                setResolveOpen('report');
+              } else {
+                navigate('/reports');
+              }
+            }}
+            className="text-sm text-brand-700 hover:underline dark:text-brand-400 shrink-0 mt-0.5 bg-transparent border-0 cursor-pointer p-0"
           >
             Rapor oluştur →
-          </Link>
+          </button>
         </div>
         {entries.length === 0 ? (
           <div className="text-gray-500 dark:text-slate-400 text-sm">
@@ -264,6 +304,25 @@ export default function Dashboard() {
           onSaved={() => {
             setEditing(null);
             load();
+          }}
+        />
+      )}
+
+      {resolveOpen && (
+        <ResolveScheduledModal
+          onClose={() => {
+            setResolveOpen(null);
+            // Modal kapanırken yeni sayım için yeniden çek.
+            load();
+          }}
+          onChange={load}
+          onAllResolved={() => {
+            // Kararlar bittikten sonra "Rapor oluştur"dan açılmışsa
+            // doğrudan Reports sayfasına götür.
+            if (resolveOpen === 'report') {
+              setResolveOpen(null);
+              navigate('/reports');
+            }
           }}
         />
       )}

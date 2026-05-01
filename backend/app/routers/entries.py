@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from pydantic import BaseModel, Field
 from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
@@ -12,6 +13,11 @@ from ..export import entries_to_csv
 from ..models import Entry, EntryType, NUMERIC_ENTRY_TYPES, Shift, User
 from ..schemas import EntryCreate, EntryOut, EntryUpdate
 from ..services import audit, get_or_create_open_shift
+
+# "Yeni vardiya raporu hazırlanırken" pop-up'ında karar gerektiren tipler.
+# Diğer tipler (DHS/İYS sayım, Önemli İşler, Eskale, Arayanlar) bir önceki
+# vardiyanın planlamasını taşımadığı için karar akışına dahil edilmez.
+RESOLVABLE_ENTRY_TYPES = {EntryType.ddos_transfer, EntryType.info}
 
 router = APIRouter(prefix="/entries", tags=["entries"])
 
@@ -210,6 +216,118 @@ def delete_entry(entry_id: int, db: Session = Depends(get_db),
     db.commit()
     audit(db, current, "entry.deleted", "entry", entry_id, audit_payload)
     return None
+
+
+# ---------- Pending resolution flow ----------
+#
+# Yeni vardiya raporu hazırlanırken, "DDoS Taşıma" ve "Bilgi" tipindeki girişlerden
+# occurs_at zamanı geçmiş olanlar için operatöre karar sorulur:
+#   - completed         → giriş silinir (audit kaydı tutulur)
+#   - reschedule (date) → occurs_at yeni tarihe güncellenir, hatırlatma resetlenir
+#   - keep_unscheduled  → occurs_at NULL olur; tarih belli değil, manuel müdahale
+#                         ile tarih atanana kadar listede görünür kalır.
+#
+# Diğer tipler bu akışa dahil edilmez (kullanıcı talebi).
+
+
+class ResolveAction(BaseModel):
+    """`/entries/{id}/resolve` payload'u."""
+    action: str = Field(
+        ...,
+        description="completed | reschedule | keep_unscheduled",
+        pattern="^(completed|reschedule|keep_unscheduled)$",
+    )
+    new_occurs_at: Optional[datetime] = Field(
+        default=None,
+        description="action=reschedule ise zorunlu, yeni planlama zamanı (UTC)",
+    )
+
+
+@router.get("/pending-resolution", response_model=List[EntryOut])
+def pending_resolution(
+    db: Session = Depends(get_db),
+    _=Depends(require_operator),
+):
+    """occurs_at zamanı geçmiş DDoS Taşıma + Bilgi girişlerini döndürür.
+
+    Yeni vardiya raporu hazırlanırken, operatöre bu girişler için karar
+    sorulur. Tüm vardiyalardaki girişleri tarar (sadece aktif vardiya değil)
+    çünkü bir önceki vardiyadan kalanlar yeni operatöre devredilir.
+    """
+    now = datetime.now(timezone.utc)
+    rows = (
+        db.query(Entry).options(joinedload(Entry.author))
+        .filter(Entry.entry_type.in_(RESOLVABLE_ENTRY_TYPES))
+        .filter(Entry.occurs_at.isnot(None))
+        .filter(Entry.occurs_at < now)
+        .order_by(Entry.occurs_at.asc())
+        .all()
+    )
+    return [_to_out(e) for e in rows]
+
+
+@router.post("/{entry_id}/resolve", response_model=Optional[EntryOut])
+def resolve_entry(
+    entry_id: int,
+    payload: ResolveAction,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_operator),
+):
+    """Geçmiş planlamalı bir DDoS Taşıma / Bilgi girişini karara bağlar.
+
+    Diğer tipler için 400 döner — bu akış sadece RESOLVABLE_ENTRY_TYPES için.
+    """
+    entry = db.query(Entry).filter(Entry.id == entry_id).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    if entry.entry_type not in RESOLVABLE_ENTRY_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail="Bu tür için karar akışı uygulanamaz (sadece DDoS Taşıma ve Bilgi).",
+        )
+
+    type_value = entry.entry_type.value
+    audit_payload = {
+        "type": type_value,
+        "action": payload.action,
+        "old_occurs_at": entry.occurs_at.isoformat() if entry.occurs_at else None,
+    }
+
+    if payload.action == "completed":
+        # Tamamlandı → giriş silinir, denetim için audit kaydı kalır.
+        db.delete(entry)
+        db.commit()
+        audit(db, current, "entry.resolved", "entry", entry_id, audit_payload)
+        return None
+
+    if payload.action == "reschedule":
+        if payload.new_occurs_at is None:
+            raise HTTPException(
+                status_code=400,
+                detail="reschedule için new_occurs_at zorunludur.",
+            )
+        new_dt = _ensure_utc(payload.new_occurs_at)
+        entry.occurs_at = new_dt
+        # Yeni tarih → hatırlatma yeniden gönderilebilsin.
+        entry.reminder_sent_at = None
+        db.commit()
+        db.refresh(entry)
+        audit_payload["new_occurs_at"] = new_dt.isoformat() if new_dt else None
+        audit(db, current, "entry.resolved", "entry", entry.id, audit_payload)
+        return _to_out(entry)
+
+    if payload.action == "keep_unscheduled":
+        # Tarih belli değil → occurs_at NULL. Giriş listede kalmaya devam eder
+        # ta ki manuel müdahale ile yeni bir tarih atanana kadar.
+        entry.occurs_at = None
+        entry.reminder_sent_at = None
+        db.commit()
+        db.refresh(entry)
+        audit(db, current, "entry.resolved", "entry", entry.id, audit_payload)
+        return _to_out(entry)
+
+    # Pydantic regex bunu zaten engelliyor ama defansif olarak:
+    raise HTTPException(status_code=400, detail="Geçersiz action.")
 
 
 @router.get("/export.csv")

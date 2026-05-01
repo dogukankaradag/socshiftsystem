@@ -1,16 +1,114 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { ROLE_LABEL } from '../api/client';
 import { useTheme } from '../theme/ThemeContext';
 
+// Üst menüde "Nöbetçi Listesi" başlığı bir dropdown'a dönüştü; alt
+// kalemleri olarak hem L2/MSSP nöbetçileri hem de aylık dağıtıcı/öğlen
+// nöbetçileri listesi yer alır. Diğer linkler düz kalır.
 const nav = [
   { to: '/', label: 'Panel' },
   { to: '/new', label: 'Yeni Giriş' },
   { to: '/incidents', label: 'Olaylar' },
   { to: '/reports', label: 'Raporlar' },
-  { to: '/roster', label: 'Nöbetçi Listesi' },
   { to: '/analytics', label: 'Analitik' },
 ];
+
+const rosterMenu = [
+  { to: '/roster', label: 'Nöbetçi Listesi' },
+  { to: '/distributors', label: 'Dağıtıcı Listesi' },
+];
+
+function RosterMenu() {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const isActive = rosterMenu.some((m) => location.pathname.startsWith(m.to));
+
+  // Sayfa değiştiğinde dropdown'u kapat.
+  useEffect(() => {
+    setOpen(false);
+  }, [location.pathname]);
+
+  // Dışarı tıklayınca kapat.
+  useEffect(() => {
+    if (!open) return;
+    function onDoc(ev: MouseEvent) {
+      if (ref.current && !ref.current.contains(ev.target as Node)) {
+        setOpen(false);
+      }
+    }
+    function onKey(ev: KeyboardEvent) {
+      if (ev.key === 'Escape') setOpen(false);
+    }
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className={`px-3 py-1.5 rounded-md text-sm font-medium inline-flex items-center gap-1 ${
+          isActive
+            ? 'bg-brand-50 text-brand-700 dark:bg-slate-700 dark:text-brand-400'
+            : 'text-gray-600 hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-slate-700'
+        }`}
+      >
+        Nöbetçi Listesi
+        <svg
+          viewBox="0 0 20 20"
+          width="12"
+          height="12"
+          fill="currentColor"
+          className={`transition-transform ${open ? 'rotate-180' : ''}`}
+          aria-hidden="true"
+        >
+          <path d="M5.23 7.21a.75.75 0 011.06.02L10 11.06l3.71-3.83a.75.75 0 111.08 1.04l-4.25 4.39a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z" />
+        </svg>
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          className="absolute left-0 mt-1 min-w-[200px] rounded-md border border-gray-200 bg-white shadow-lg
+                     dark:border-slate-700 dark:bg-slate-800 z-30 py-1"
+        >
+          {rosterMenu.map((m) => {
+            const active = location.pathname === m.to;
+            return (
+              <button
+                key={m.to}
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setOpen(false);
+                  navigate(m.to);
+                }}
+                className={`w-full text-left px-3 py-1.5 text-sm ${
+                  active
+                    ? 'bg-brand-50 text-brand-700 dark:bg-slate-700 dark:text-brand-400'
+                    : 'text-gray-700 hover:bg-gray-100 dark:text-slate-200 dark:hover:bg-slate-700'
+                }`}
+              >
+                {m.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function ThemeToggle() {
   const { theme, toggle } = useTheme();
@@ -50,22 +148,25 @@ export default function Layout() {
           <div className="font-semibold text-lg text-brand-700 dark:text-brand-400">
             Vardiya Devir Sistemi
           </div>
-          <nav className="flex gap-1 flex-1">
+          <nav className="flex gap-1 flex-1 items-center">
             {nav.map((n) => (
-              <NavLink
-                key={n.to}
-                to={n.to}
-                end={n.to === '/'}
-                className={({ isActive }) =>
-                  `px-3 py-1.5 rounded-md text-sm font-medium ${
-                    isActive
-                      ? 'bg-brand-50 text-brand-700 dark:bg-slate-700 dark:text-brand-400'
-                      : 'text-gray-600 hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-slate-700'
-                  }`
-                }
-              >
-                {n.label}
-              </NavLink>
+              <span key={n.to} className="contents">
+                <NavLink
+                  to={n.to}
+                  end={n.to === '/'}
+                  className={({ isActive }) =>
+                    `px-3 py-1.5 rounded-md text-sm font-medium ${
+                      isActive
+                        ? 'bg-brand-50 text-brand-700 dark:bg-slate-700 dark:text-brand-400'
+                        : 'text-gray-600 hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-slate-700'
+                    }`
+                  }
+                >
+                  {n.label}
+                </NavLink>
+                {/* Raporlar'dan hemen sonra Nöbetçi Listesi dropdown'ını araya ekliyoruz. */}
+                {n.to === '/reports' && <RosterMenu />}
+              </span>
             ))}
             {user?.role === 'admin' && (
               <NavLink
@@ -100,7 +201,7 @@ export default function Layout() {
         <Outlet />
       </main>
       <footer className="text-center text-xs text-gray-400 py-4 dark:text-slate-500">
-        Vardiya Devir Sistemi &middot; v0.5.2
+        Vardiya Devir Sistemi &middot; v0.5.4
       </footer>
     </div>
   );

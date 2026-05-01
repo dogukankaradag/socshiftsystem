@@ -1,4 +1,4 @@
-# Vardiya Devir Sistemi — v0.5.2
+# Vardiya Devir Sistemi — v0.5.4
 
 NOC / operasyon ekipleri için yapılandırılmış vardiya devir ve raporlama
 platformu. Serbest format e-posta devir alışkanlığını; aranabilir,
@@ -26,6 +26,8 @@ denetlenebilir ve zamanlanmış otomatik raporlamaya taşır.
 | Otomatik hatırlatma        | `occurs_at` zamanına 30 dk kala vardiyanın TO alıcılarına kısa hatırlatma e-postası |
 | IMAP entegrasyonu          | DHS / İYS maillerinden otomatik giriş (on-prem IMAP / Exchange) — manuel giriş yine mümkün |
 | Nöbetçi Listesi            | L2 + MSSP aylık vardiya çizelgesi; XLSX / PDF yükle + otomatik parse |
+| Dağıtıcı Listesi           | Aylık dağıtıcı + öğlen nöbetçileri çizelgesi; aynı yükleme akışı (.xlsx / .pdf), aynı RBAC. Nöbetçi Listesi'nden ayrı bir menü altında |
+| Bekleyen kararlar          | Yeni vardiya raporundan önce, geçmiş planlamalı **DDoS Taşıma** ve **Bilgi** girişleri için pop-up: tamamlandı (sil) / yeni tarih (yeniden planla) / tarih belli değil (açık iş olarak listede tut) |
 | Rapor başlığı              | Varsayılan: "MSSP Vardiya Raporu — X Vardiyası (tarih)" — UI'dan override edilir |
 | Düzenleme & silme          | Girişler, raporlar (gönderilmeden), olaylar, nöbet kayıtları, kullanıcılar ve mail listeleri için satır içi **Düzenle / Sil** + onay diyaloğu. Tüm operatörler birbirinin girişini düzenleyebilir/silebilir (her aksiyon audit log'a yazılır) |
 | Tema                       | Aydınlık / karanlık mod toggle'ı; tercih `localStorage`'da saklanır, sistem temasını fallback olarak kullanır |
@@ -101,6 +103,29 @@ başlatırsanız `invalid input value for enum ...` hatası alırsınız.
   kullanmaya devam eder, dolayısıyla tür bazlı sayım/raporlamalar
   etkilenmez. Yine sadece `docker compose build && docker compose up -d`
   yeterlidir.
+* v0.5.2 → v0.5.3: **PostgreSQL kullanıcıları için enum migration gerekir
+  — SQLite'da otomatik.** `RosterTeam` enum'ına iki yeni değer eklendi:
+  `distributor` (Aylık Dağıtıcı) ve `lunch` (Öğlen Nöbetçileri). Aynı
+  `oncall_roster` tablosu paylaşılır; sadece `team` alanı ayrışır. Yeni
+  "Dağıtıcı Listesi" sayfası (`/distributors`) Nöbetçi Listesi'nin
+  yanında menüde yer alır. Ayrıca yeni "Bekleyen Kararlar" akışı:
+  `GET /entries/pending-resolution` ve `POST /entries/{id}/resolve`
+  endpoint'leri eklendi; UI tarafında Panel'de banner ve "Rapor oluştur"
+  linkine intercept eklendi. PostgreSQL'de yükseltme:
+
+  ```sql
+  ALTER TYPE rosterteam ADD VALUE IF NOT EXISTS 'distributor';
+  ALTER TYPE rosterteam ADD VALUE IF NOT EXISTS 'lunch';
+  ```
+
+  Volume sıfırlamak istemeyenler bu iki SQL'i bir kez çalıştırır;
+  ardından `docker compose build && docker compose up -d`.
+* v0.5.3 → v0.5.4: **Sadece UI değişikliği — migration gerekmez.** Üst
+  menüdeki "Dağıtıcı Listesi" düz linki kaldırıldı; bunun yerine
+  "Nöbetçi Listesi" başlığı bir dropdown'a dönüştü. Dropdown altında
+  iki alt kalem var: *Nöbetçi Listesi* (L2 + MSSP) ve *Dağıtıcı Listesi*
+  (Aylık Dağıtıcı + Öğlen Nöbetçileri). Backend, route'lar ve sayfa
+  içerikleri değişmedi; sadece `docker compose build && docker compose up -d`.
 
 Bu yüzden eski volume'u temizlemek gerekir:
 

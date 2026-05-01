@@ -213,9 +213,22 @@ class AuditLog(Base):
 
 
 class RosterTeam(str, enum.Enum):
-    """Nöbetçi listesi ekibi."""
-    l2 = "l2"        # L2 nöbetçi
-    mssp = "mssp"    # MSSP aylık vardiya çizelgesi
+    """Nöbetçi & dağıtıcı listesi ekibi.
+
+    L2 / MSSP   → "Nöbetçi Listesi" sayfasında görüntülenir.
+    Distributor / Lunch → "Dağıtıcı Listesi" sayfasında görüntülenir.
+    Aynı OnCallRoster tablosunu paylaşır; sadece team değeri ayrışır.
+    """
+    l2 = "l2"                    # L2 nöbetçi
+    mssp = "mssp"                # MSSP aylık vardiya çizelgesi
+    distributor = "distributor"  # Aylık dağıtıcı (Dağıtıcı Listesi sayfası)
+    lunch = "lunch"              # Öğlen nöbetçileri (Dağıtıcı Listesi sayfası)
+
+
+# Hangi RosterTeam değerleri "Dağıtıcı Listesi" sayfasında listelenir.
+DISTRIBUTOR_TEAMS = {RosterTeam.distributor, RosterTeam.lunch}
+# Hangi RosterTeam değerleri "Nöbetçi Listesi" sayfasında listelenir.
+ROSTER_TEAMS = {RosterTeam.l2, RosterTeam.mssp}
 
 
 class OnCallRoster(Base):

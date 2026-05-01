@@ -187,13 +187,24 @@ export interface AnalyticsOverview {
   recurring_titles: { title: string; count: number }[];
 }
 
-// Roster (Nöbetçi Listesi)
-export type RosterTeam = 'l2' | 'mssp';
+// Roster (Nöbetçi Listesi) + Distributor (Dağıtıcı Listesi)
+// l2 / mssp        → Nöbetçi Listesi sayfasında listelenir
+// distributor / lunch → Dağıtıcı Listesi sayfasında listelenir
+export type RosterTeam = 'l2' | 'mssp' | 'distributor' | 'lunch';
 
 export const ROSTER_TEAM_LABEL: Record<RosterTeam, string> = {
   l2: 'L2 Ekibi',
   mssp: 'MSSP Vardiyaları',
+  distributor: 'Aylık Dağıtıcı',
+  lunch: 'Öğlen Nöbetçileri',
 };
+
+// Hangi takımlar için "Vardiya/Etiket" kolonu (shift_label) gösterilsin.
+// MSSP için A/B/C, öğlen nöbeti için 12:00 / 13:00 gibi bir slot etiketi olabilir.
+export const ROSTER_TEAMS_WITH_SHIFT_LABEL: Set<RosterTeam> = new Set([
+  'mssp',
+  'lunch',
+]);
 
 export interface RosterEntry {
   id: number;
