@@ -201,7 +201,7 @@ export default function Layout() {
         <Outlet />
       </main>
       <footer className="text-center text-xs text-gray-400 py-4 dark:text-slate-500">
-        Vardiya Devir Sistemi &middot; v0.5.4
+        Vardiya Devir Sistemi &middot; v0.6.0
       </footer>
     </div>
   );

@@ -146,9 +146,8 @@ export default function Dashboard() {
               {pendingCount} bekleyen karar var
             </div>
             <p className="text-xs text-gray-600 dark:text-slate-300 mt-0.5">
-              Bir önceki vardiyadan kalmış, tarihi geçmiş DDoS Taşıma ve Bilgi
-              girişleri var. Yeni vardiya raporundan önce her biri için karar verin
-              (tamamlandı / yeni tarih / tarih belli değil).
+              Bir önceki vardiyadan kalmış DDoS Taşıma (zamanı geçmiş) ve Bilgi
+              girişleri var. Yeni vardiya raporundan önce her biri için karar verin.
             </p>
           </div>
           <button
@@ -365,12 +364,18 @@ function EntryEditModal({
   onSaved: () => void;
 }) {
   const isNumeric = NUMERIC_ENTRY_TYPES.includes(entry.entry_type as EntryType);
+  // Planlı zaman alanı yalnızca DDoS Taşıma için açılır; diğer türlerde
+  // gizli ve her zaman null olarak yazılır (eski kayıtlardan kalan
+  // değerler de güncelleme sırasında temizlenir).
+  const allowsOccursAt = entry.entry_type === 'ddos_transfer';
   const [title, setTitle] = useState(entry.title || '');
   const [body, setBody] = useState(entry.body || '');
   const [numericValue, setNumericValue] = useState<string>(
     entry.numeric_value != null ? String(entry.numeric_value) : '',
   );
-  const [occursAt, setOccursAt] = useState(isoToLocalInput(entry.occurs_at));
+  const [occursAt, setOccursAt] = useState(
+    allowsOccursAt ? isoToLocalInput(entry.occurs_at) : '',
+  );
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -393,8 +398,11 @@ function EntryEditModal({
       } else {
         payload.body = body;
       }
-      // occurs_at: '' -> null (planlamayı kaldır), dolu -> UTC ISO
-      payload.occurs_at = occursAt ? localInputToUtcIso(occursAt) : null;
+      // occurs_at sadece DDoS Taşıma için kabul edilir; diğer türlerde her
+      // güncelleme null yazar (eski değer kalmışsa temizler).
+      payload.occurs_at = allowsOccursAt && occursAt
+        ? localInputToUtcIso(occursAt)
+        : null;
 
       await api.patch(`/entries/${entry.id}`, payload);
       onSaved();
@@ -453,29 +461,31 @@ function EntryEditModal({
           </div>
         )}
 
-        <div>
-          <label className="label">Planlı zaman (GMT+3, opsiyonel)</label>
-          <div className="flex gap-2">
-            <input
-              type="datetime-local"
-              className="input"
-              value={occursAt}
-              onChange={(e) => setOccursAt(e.target.value)}
-            />
-            {occursAt && (
-              <button
-                type="button"
-                className="btn-ghost text-xs"
-                onClick={() => setOccursAt('')}
-              >
-                Planlamayı kaldır
-              </button>
-            )}
+        {allowsOccursAt && (
+          <div>
+            <label className="label">Planlı zaman (GMT+3, opsiyonel)</label>
+            <div className="flex gap-2">
+              <input
+                type="datetime-local"
+                className="input"
+                value={occursAt}
+                onChange={(e) => setOccursAt(e.target.value)}
+              />
+              {occursAt && (
+                <button
+                  type="button"
+                  className="btn-ghost text-xs"
+                  onClick={() => setOccursAt('')}
+                >
+                  Planlamayı kaldır
+                </button>
+              )}
+            </div>
+            <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
+              Tarih değiştirilirse hatırlatma yeniden gönderilir.
+            </p>
           </div>
-          <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
-            Tarih değiştirilirse hatırlatma yeniden gönderilir.
-          </p>
-        </div>
+        )}
 
         {err && <div className="text-sm text-red-600 dark:text-red-400">{err}</div>}
 

@@ -1,4 +1,4 @@
-# Vardiya Devir Sistemi — v0.5.4
+# Vardiya Devir Sistemi — v0.6.0
 
 NOC / operasyon ekipleri için yapılandırılmış vardiya devir ve raporlama
 platformu. Serbest format e-posta devir alışkanlığını; aranabilir,
@@ -126,6 +126,22 @@ başlatırsanız `invalid input value for enum ...` hatası alırsınız.
   iki alt kalem var: *Nöbetçi Listesi* (L2 + MSSP) ve *Dağıtıcı Listesi*
   (Aylık Dağıtıcı + Öğlen Nöbetçileri). Backend, route'lar ve sayfa
   içerikleri değişmedi; sadece `docker compose build && docker compose up -d`.
+* v0.5.4 → v0.6.0: **Şema değişikliği yok — migration gerekmez.** Üç
+  iyileştirme: (1) "Yeni Giriş" formunda *Planlanan Zaman* alanı artık
+  yalnızca **DDoS Taşıma** türü için gösterilir; diğer türlerde gizli ve
+  her zaman `null` yazılır (mevcut kayıtların stale `occurs_at` değerleri
+  bir sonraki düzenlemede otomatik temizlenir). (2) Rapor maili artık
+  yalnızca **inline HTML tablo** olarak gönderilir (Outlook/Gmail uyumlu,
+  müşterinin paylaştığı şablona sadık); PDF eki **hiçbir gönderimde**
+  eklenmez. PDF manuel indirme için `/api/reports/{id}/export.pdf`
+  üzerinden hâlâ erişilebilir. (3) "Bekleyen Kararlar" akışı **Bilgi**
+  türünü 2 seçenekli soruya alır ("Evet, raporda kalmaya devam etsin" /
+  "Hayır, silinsin"); DDoS Taşıma'nın 3 seçenekli akışı dokunulmadan
+  korunur. Yeni endpoint davranışı: `GET /entries/pending-resolution`
+  artık Bilgi girişlerini aktif vardiya dışındaki tüm vardiyalardan
+  toplar; `POST /entries/{id}/resolve` yeni `action=keep` değerini kabul
+  eder (state değiştirmez, sadece audit yazar). Yine sadece
+  `docker compose build && docker compose up -d`.
 
 Bu yüzden eski volume'u temizlemek gerekir:
 

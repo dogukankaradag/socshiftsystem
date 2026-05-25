@@ -87,44 +87,120 @@ _MD_TEMPLATE = Template("""# {{ title }}
 _Bu rapor Vardiya Devir Sistemi tarafından {{ now }} ({{ tz }}) zamanında otomatik oluşturuldu._
 """)
 
+# v0.6.0: Mail body için kompakt, Outlook/Gmail uyumlu tablo şablonu.
+# Müşterinin paylaştığı görsel örneğe sadık: greeting + tek tablo + footer.
+# Tüm CSS inline; class kullanılmaz (kurumsal Outlook bazı class'ları siler).
+# Bilgi (info) girişleri tablonun L2/Eskale satırında kırmızı + kalın
+# vurgulanır (önem arz eden, sonraki vardiyaya taşınan kalıcı uyarılar).
 _HTML_TEMPLATE = Template("""<!doctype html>
-<html lang="tr"><head><meta charset="utf-8"><title>{{ title }}</title>
-<style>
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:820px;margin:24px auto;color:#1f2937;line-height:1.55;padding:0 16px}
-  h1{margin-bottom:4px;color:#111827}
-  h2{border-bottom:1px solid #e5e7eb;padding-bottom:4px;margin-top:28px;color:#111827}
-  .meta{color:#6b7280;margin-bottom:16px}
-  .entry{padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;margin:8px 0;background:#fafafa}
-  .entry .t{font-weight:600}
-  .entry .b{color:#374151;white-space:pre-wrap;margin-top:4px}
-  .upcoming{background:#fef3c7;border-color:#fde68a}
-  .when{display:inline-block;font-size:12px;color:#1d4ed8;background:#dbeafe;padding:2px 8px;border-radius:999px;margin-right:8px;font-weight:600}
-  .src{display:inline-block;font-size:11px;color:#6b7280;background:#e5e7eb;padding:1px 6px;border-radius:4px;margin-left:6px}
-  .totals{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin:12px 0}
-  .tot{background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px}
-  .tot b{color:#1d4ed8;font-size:20px}
-  footer{color:#9ca3af;font-size:12px;margin-top:32px;border-top:1px solid #e5e7eb;padding-top:12px}
-</style></head><body>
-<h1>{{ title }}</h1>
-<div class="meta"><b>Dönem:</b> {{ shift_start }} &rarr; {{ end }} &nbsp;|&nbsp; <b>Giriş sayısı:</b> {{ entries|length }}{% if upcoming %} &nbsp;|&nbsp; <b>Yaklaşan:</b> {{ upcoming|length }}{% endif %}</div>
-<h2>Yönetici Özeti</h2><p>{{ ai.summary }}</p>
-{% if totals_numeric %}
-<h2>Sayısal Toplamlar</h2>
-<div class="totals">{% for row in totals_numeric %}<div class="tot">{{ row.label }}<br><b>{{ row.total }}</b><br><span style="color:#6b7280;font-size:12px">kayıt: {{ row.count }}</span></div>{% endfor %}</div>
-{% endif %}
-{% if ai.highlights %}<h2>Öne Çıkan Maddeler</h2><ul>{% for h in ai.highlights %}<li>{{ h }}</li>{% endfor %}</ul>{% endif %}
-{% if ai.action_items %}<h2>Bir Sonraki Vardiya İçin Takip</h2><ol>{% for a in ai.action_items %}<li>{{ a }}</li>{% endfor %}</ol>{% endif %}
-<h2>Tür Bazında Girişler</h2>
-{% for t in types %}{% if grouped[t.value] %}
-<h3>{{ type_label_tr[t] }} ({{ grouped[t.value]|length }})</h3>
-{% for e in grouped[t.value] %}<div class="entry">{% if e.occurs_at %}<span class="when">{{ local_fmt(e.occurs_at) }}</span>{% endif %}<span class="t">{{ type_label_tr[e.entry_type] }}</span>{% if e.source %}<span class="src">{{ e.source }}</span>{% endif %}<div class="b">{{ entry_display(e)[1] }}</div></div>{% endfor %}
-{% endif %}{% endfor %}
-{% if upcoming %}
-<h2>Yaklaşan Planlı İşler (Diğer Vardiyalardan)</h2>
-{% for e in upcoming %}<div class="entry upcoming"><span class="when">{{ local_fmt(e.occurs_at) }}</span><span class="t">{{ type_label_tr[e.entry_type] }}</span><div class="b">{{ (e.body or e.title or '')[:400] }}</div></div>{% endfor %}
-{% endif %}
-{% if ai.duplicates %}<h2>Olası Mükerrer Kayıtlar</h2><ul>{% for d in ai.duplicates %}<li>#{{ d.entry_id }} ≈ #{{ d.duplicate_of }} (benzerlik: {{ d.similarity }})</li>{% endfor %}</ul>{% endif %}
-<footer>Vardiya Devir Sistemi tarafından {{ now }} ({{ tz }}) zamanında otomatik oluşturuldu.</footer>
+<html lang="tr"><head><meta charset="utf-8"><title>{{ title }}</title></head>
+<body style="font-family:Calibri,Segoe UI,Arial,sans-serif;color:#1f2937;font-size:14px;line-height:1.5;margin:0;padding:16px;">
+
+<p style="margin:0 0 12px;">Merhaba,</p>
+<p style="margin:0 0 12px;">MSSP ekibi vardiya raporuna ait detaylar tabloda paylaşılmıştır.</p>
+<p style="margin:0 0 20px;">Bilgilerinize.</p>
+
+<table cellspacing="0" cellpadding="6" border="1"
+       style="border-collapse:collapse;width:100%;max-width:780px;border:1px solid #7a7a7a;font-size:13px;">
+
+  {# --- MSSP Talepler (3 satır birleşmiş) --- #}
+  <tr>
+    <td rowspan="3" style="background:#dce6f1;border:1px solid #7a7a7a;font-weight:bold;width:32%;vertical-align:middle;">
+      MSSP Talepler
+    </td>
+    <td style="border:1px solid #7a7a7a;width:43%;">İYS kapatılan case</td>
+    <td style="border:1px solid #7a7a7a;text-align:center;width:25%;">{{ totals.iys if totals.iys else '' }}</td>
+  </tr>
+  <tr>
+    <td style="border:1px solid #7a7a7a;">DHS kapatılan iş emri</td>
+    <td style="border:1px solid #7a7a7a;text-align:center;">{{ totals.dhs if totals.dhs else '' }}</td>
+  </tr>
+  <tr>
+    <td style="border:1px solid #7a7a7a;">SM kapatılan iş emri</td>
+    <td style="border:1px solid #7a7a7a;text-align:center;">{{ totals.sm if totals.sm else '' }}</td>
+  </tr>
+
+  {# --- Telefon ile gelen Müşteri Çağrıları --- #}
+  <tr>
+    <td style="background:#dce6f1;border:1px solid #7a7a7a;font-weight:bold;vertical-align:top;">
+      Telefon ile gelen Müşteri Çağrıları
+    </td>
+    <td colspan="2" style="border:1px solid #7a7a7a;vertical-align:top;">
+      {% if grouped['callers'] %}{% for e in grouped['callers'] %}
+        <div>{{ entry_display(e)[1] }}</div>
+      {% endfor %}{% endif %}
+    </td>
+  </tr>
+
+  {# --- Yapılan Önemli İşler / Olaylar --- #}
+  <tr>
+    <td style="background:#dce6f1;border:1px solid #7a7a7a;font-weight:bold;vertical-align:top;">
+      Yapılan Önemli İşler/Olaylar
+    </td>
+    <td colspan="2" style="border:1px solid #7a7a7a;vertical-align:top;">
+      {% if grouped['important_work'] %}<ul style="margin:0;padding-left:18px;">
+      {% for e in grouped['important_work'] %}<li>{{ entry_display(e)[1] }}</li>{% endfor %}
+      </ul>{% endif %}
+    </td>
+  </tr>
+
+  {# --- DDoS Taşıma --- #}
+  {% if grouped['ddos_transfer'] %}
+  <tr>
+    <td style="background:#dce6f1;border:1px solid #7a7a7a;font-weight:bold;vertical-align:top;">
+      DDoS Taşıma
+    </td>
+    <td colspan="2" style="border:1px solid #7a7a7a;vertical-align:top;">
+      <ul style="margin:0;padding-left:18px;">
+        {% for e in grouped['ddos_transfer'] %}
+        <li>{% if e.occurs_at %}<b>[{{ local_fmt(e.occurs_at) }}]</b> {% endif %}{{ entry_display(e)[1] }}</li>
+        {% endfor %}
+      </ul>
+    </td>
+  </tr>
+  {% endif %}
+
+  {# --- L2'ye eskale + Bilgi (Bilgi kırmızı+kalın olarak en üstte) --- #}
+  <tr>
+    <td style="background:#dce6f1;border:1px solid #7a7a7a;font-weight:bold;vertical-align:top;">
+      L2'ye eskale edilen önemli olay/konu
+    </td>
+    <td colspan="2" style="border:1px solid #7a7a7a;vertical-align:top;">
+      {% if grouped['info'] or grouped['l2_escalation'] %}<ul style="margin:0;padding-left:18px;">
+        {# Bilgi girişleri kalıcı uyarı — kırmızı + kalın #}
+        {% for e in grouped['info'] %}
+        <li style="color:#c00000;font-weight:bold;">{{ entry_display(e)[1] }}</li>
+        {% endfor %}
+        {% for e in grouped['l2_escalation'] %}
+        <li>{{ entry_display(e)[1] }}</li>
+        {% endfor %}
+      </ul>{% endif %}
+    </td>
+  </tr>
+
+  {# --- Yaklaşan planlı (diğer vardiyalardan taşınan DDoS taşımaları) --- #}
+  {% if upcoming %}
+  <tr>
+    <td style="background:#fff2cc;border:1px solid #7a7a7a;font-weight:bold;vertical-align:top;">
+      Yaklaşan Planlı İşler
+    </td>
+    <td colspan="2" style="border:1px solid #7a7a7a;vertical-align:top;background:#fffbe6;">
+      <ul style="margin:0;padding-left:18px;">
+        {% for e in upcoming %}
+        <li><b>[{{ local_fmt(e.occurs_at) }}]</b> <i>{{ type_label_tr[e.entry_type] }}</i>: {{ (e.body or e.title or '')[:300] }}</li>
+        {% endfor %}
+      </ul>
+    </td>
+  </tr>
+  {% endif %}
+
+</table>
+
+<p style="color:#6b7280;font-size:11px;margin-top:24px;">
+  {{ title }} &middot; {{ shift_start }} &rarr; {{ end }} &middot;
+  Vardiya Devir Sistemi tarafından {{ now }} ({{ tz }}) zamanında otomatik oluşturuldu.
+</p>
+
 </body></html>
 """)
 
@@ -145,6 +221,21 @@ def _numeric_totals(entries: List[Entry]) -> list[dict]:
             row["total"] += int(e.numeric_value or 0)
             row["count"] += 1
     return list(agg.values())
+
+
+def _numeric_totals_dict(entries: List[Entry]) -> dict:
+    """HTML tablo şablonu için anahtarlı toplamlar (iys/dhs/sm).
+
+    SM henüz EntryType olarak modellenmiş değil; ileride eklendiğinde
+    burada okunmaya hazır. Şimdilik daima 0 (None'a düşer).
+    """
+    out = {"iys": 0, "dhs": 0, "sm": 0}
+    for e in entries:
+        if e.entry_type == EntryType.iys and e.numeric_value is not None:
+            out["iys"] += int(e.numeric_value)
+        elif e.entry_type == EntryType.dhs and e.numeric_value is not None:
+            out["dhs"] += int(e.numeric_value)
+    return out
 
 
 def _local(dt: datetime) -> str:
@@ -174,6 +265,7 @@ def build_report(shift: Shift, entries: List[Entry], ai: AIResult,
 
     grouped = _group_by_type(entries)
     totals_numeric = _numeric_totals(entries)
+    totals_dict = _numeric_totals_dict(entries)  # HTML şablon için
 
     if subject_override and subject_override.strip():
         title = subject_override.strip()
@@ -196,7 +288,8 @@ def build_report(shift: Shift, entries: List[Entry], ai: AIResult,
         shift_start=shift_start, end=end,
         entries=entries, upcoming=upcoming, ai=ai,
         types=TYPE_ORDER, grouped=grouped,
-        totals_numeric=totals_numeric,
+        totals=totals_dict,           # yeni: iys/dhs/sm sözlüğü
+        totals_numeric=totals_numeric,  # eski (markdown / pdf hâlâ kullanıyor)
         entry_display=_entry_display,
         type_label_tr=ENTRY_TYPE_LABEL_TR,
         local_fmt=_local_short,

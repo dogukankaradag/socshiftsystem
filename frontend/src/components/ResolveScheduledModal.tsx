@@ -1,20 +1,23 @@
-// Geçmiş planlı DDoS Taşıma + Bilgi girişlerini karara bağlama modalı.
+// Karar bekleyen girişleri (DDoS Taşıma + Bilgi) tek pop-up'ta çözer.
 //
 // Kullanıcı yeni vardiya raporu hazırlamaya başlarken (ya da Panel'deki
-// "Bekleyen kararlar" banner'ından) bu modal açılır. Backend her giriş için
-// 3 aksiyon kabul eder:
-//   1) completed         → giriş silinir, raporda da olmaz
-//   2) reschedule(date)  → occurs_at güncellenir, giriş yeni tarihe taşınır
-//   3) keep_unscheduled  → occurs_at NULL olur, giriş açık iş olarak görünmeye
-//                          devam eder; ileride manuel olarak tarih atanabilir.
+// "Bekleyen kararlar" banner'ından) bu modal açılır.
 //
-// Modal kapanırken karar verilmemiş giriş kalmışsa onayı ister; isterse
-// kullanıcı "Sonra karar veririm" diyerek çıkabilir (banner görünmeye devam
-// eder).
+// DDoS Taşıma (occurs_at < now olanlar) için 3 aksiyon:
+//   1) completed         → giriş silinir
+//   2) reschedule(date)  → occurs_at güncellenir
+//   3) keep_unscheduled  → occurs_at NULL olur, açık iş olarak listede kalır
+//
+// Bilgi için 2 aksiyon (her vardiya raporu öncesi her Bilgi için sorulur):
+//   1) keep      → "Evet, raporda kalmaya devam etsin" (state değişmez)
+//   2) completed → "Hayır, silinsin"
+//
+// Modal kapanırken karar verilmemiş giriş kalmışsa kullanıcı "Sonra karar
+// veririm" diyerek çıkabilir (banner görünmeye devam eder).
 import { useEffect, useMemo, useState } from 'react';
 import { api, ENTRY_TYPE_LABEL, Entry, NUMERIC_ENTRY_TYPES } from '../api/client';
 
-type ResolveAction = 'completed' | 'reschedule' | 'keep_unscheduled';
+type ResolveAction = 'completed' | 'reschedule' | 'keep_unscheduled' | 'keep';
 
 function fmtLocal(iso: string): string {
   return new Date(iso).toLocaleString('tr-TR', {
@@ -186,8 +189,9 @@ export default function ResolveScheduledModal({
               Bekleyen Kararlar
             </h2>
             <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">
-              Bir önceki vardiyada planlanan ama tarihi geçen DDoS Taşıma ve Bilgi
-              girişleri için karar verin. Diğer tipler için ek karar gerekmez.
+              Bir önceki vardiyadan kalan <b>DDoS Taşıma</b> (zamanı geçmiş planlamalar)
+              ve <b>Bilgi</b> girişleri için karar verin. Diğer tipler için ek karar
+              gerekmez.
             </p>
           </div>
           <button
@@ -248,83 +252,121 @@ export default function ResolveScheduledModal({
                       </div>
 
                       <fieldset className="space-y-1.5 text-sm text-gray-700 dark:text-slate-200">
-                        <label className="flex items-start gap-2">
-                          <input
-                            type="radio"
-                            name={`act-${e.id}`}
-                            className="mt-0.5"
-                            checked={action === 'completed'}
-                            onChange={() =>
-                              setActions((p) => ({ ...p, [e.id]: 'completed' }))
-                            }
-                          />
-                          <span>
-                            <b>
-                              {e.entry_type === 'ddos_transfer'
-                                ? 'Evet, taşıma tamamlandı'
-                                : 'Evet, durum sona erdi'}
-                            </b>{' '}
-                            <span className="text-xs text-gray-500 dark:text-slate-400">
-                              — giriş silinsin, yeni rapora dahil edilmesin.
-                            </span>
-                          </span>
-                        </label>
-
-                        <label className="flex items-start gap-2">
-                          <input
-                            type="radio"
-                            name={`act-${e.id}`}
-                            className="mt-0.5"
-                            checked={action === 'reschedule'}
-                            onChange={() =>
-                              setActions((p) => ({ ...p, [e.id]: 'reschedule' }))
-                            }
-                          />
-                          <span className="flex-1">
-                            <b>
-                              {e.entry_type === 'ddos_transfer'
-                                ? 'Hayır, taşıma tamamlanmadı — yeni tarih:'
-                                : 'Hayır, devam edecek — yeni tarih:'}
-                            </b>
-                            <input
-                              type="datetime-local"
-                              className="input mt-1 max-w-xs"
-                              disabled={action !== 'reschedule'}
-                              value={newDate}
-                              onChange={(ev) =>
-                                setNewDates((p) => ({
-                                  ...p,
-                                  [e.id]: ev.target.value,
-                                }))
-                              }
-                            />
-                            <div className="text-xs text-gray-500 dark:text-slate-400 mt-1">
-                              GMT+3 cinsinden seçin. Hatırlatma yeniden gönderilir.
+                        {e.entry_type === 'info' ? (
+                          // --- BİLGİ: 2 seçenek (evet / hayır) ---
+                          <>
+                            <div className="text-sm text-gray-700 dark:text-slate-200">
+                              Bu bilgi girişi yeni vardiya raporunda kalmaya devam etmeli mi?
                             </div>
-                          </span>
-                        </label>
+                            <label className="flex items-start gap-2">
+                              <input
+                                type="radio"
+                                name={`act-${e.id}`}
+                                className="mt-0.5"
+                                checked={action === 'keep'}
+                                onChange={() =>
+                                  setActions((p) => ({ ...p, [e.id]: 'keep' }))
+                                }
+                              />
+                              <span>
+                                <b>Evet, raporda kalmaya devam etsin</b>{' '}
+                                <span className="text-xs text-gray-500 dark:text-slate-400">
+                                  — sonraki vardiya da bu bilgiyi görsün.
+                                </span>
+                              </span>
+                            </label>
+                            <label className="flex items-start gap-2">
+                              <input
+                                type="radio"
+                                name={`act-${e.id}`}
+                                className="mt-0.5"
+                                checked={action === 'completed'}
+                                onChange={() =>
+                                  setActions((p) => ({ ...p, [e.id]: 'completed' }))
+                                }
+                              />
+                              <span>
+                                <b>Hayır, silinsin</b>{' '}
+                                <span className="text-xs text-gray-500 dark:text-slate-400">
+                                  — durum sona erdi, yeni rapora dahil edilmesin.
+                                </span>
+                              </span>
+                            </label>
+                          </>
+                        ) : (
+                          // --- DDoS TAŞIMA: 3 seçenek (tamamlandı / yeniden planla / tarih belli değil) ---
+                          <>
+                            <label className="flex items-start gap-2">
+                              <input
+                                type="radio"
+                                name={`act-${e.id}`}
+                                className="mt-0.5"
+                                checked={action === 'completed'}
+                                onChange={() =>
+                                  setActions((p) => ({ ...p, [e.id]: 'completed' }))
+                                }
+                              />
+                              <span>
+                                <b>Evet, taşıma tamamlandı</b>{' '}
+                                <span className="text-xs text-gray-500 dark:text-slate-400">
+                                  — giriş silinsin, yeni rapora dahil edilmesin.
+                                </span>
+                              </span>
+                            </label>
 
-                        <label className="flex items-start gap-2">
-                          <input
-                            type="radio"
-                            name={`act-${e.id}`}
-                            className="mt-0.5"
-                            checked={action === 'keep_unscheduled'}
-                            onChange={() =>
-                              setActions((p) => ({
-                                ...p,
-                                [e.id]: 'keep_unscheduled',
-                              }))
-                            }
-                          />
-                          <span>
-                            <b>Tarih belli değil</b>{' '}
-                            <span className="text-xs text-gray-500 dark:text-slate-400">
-                              — giriş açık iş olarak listede kalsın; ileride manuel
-                              olarak tarih atanabilir.
-                            </span>
-                          </span>
-                        </label>
+                            <label className="flex items-start gap-2">
+                              <input
+                                type="radio"
+                                name={`act-${e.id}`}
+                                className="mt-0.5"
+                                checked={action === 'reschedule'}
+                                onChange={() =>
+                                  setActions((p) => ({ ...p, [e.id]: 'reschedule' }))
+                                }
+                              />
+                              <span className="flex-1">
+                                <b>Hayır, taşıma tamamlanmadı — yeni tarih:</b>
+                                <input
+                                  type="datetime-local"
+                                  className="input mt-1 max-w-xs"
+                                  disabled={action !== 'reschedule'}
+                                  value={newDate}
+                                  onChange={(ev) =>
+                                    setNewDates((p) => ({
+                                      ...p,
+                                      [e.id]: ev.target.value,
+                                    }))
+                                  }
+                                />
+                                <div className="text-xs text-gray-500 dark:text-slate-400 mt-1">
+                                  GMT+3 cinsinden seçin. Hatırlatma yeniden gönderilir.
+                                </div>
+                              </span>
+                            </label>
+
+                            <label className="flex items-start gap-2">
+                              <input
+                                type="radio"
+                                name={`act-${e.id}`}
+                                className="mt-0.5"
+                                checked={action === 'keep_unscheduled'}
+                                onChange={() =>
+                                  setActions((p) => ({
+                                    ...p,
+                                    [e.id]: 'keep_unscheduled',
+                                  }))
+                                }
+                              />
+                              <span>
+                                <b>Tarih belli değil</b>{' '}
+                                <span className="text-xs text-gray-500 dark:text-slate-400">
+                                  — giriş açık iş olarak listede kalsın; ileride
+                                  manuel olarak tarih atanabilir.
+                                </span>
+                              </span>
+                            </label>
+                          </>
+                        )}
                       </fieldset>
 
                       <div className="flex justify-end">

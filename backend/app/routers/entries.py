@@ -231,11 +231,15 @@ def delete_entry(entry_id: int, db: Session = Depends(get_db),
 
 
 class ResolveAction(BaseModel):
-    """`/entries/{id}/resolve` payload'u."""
+    """`/entries/{id}/resolve` payload'u.
+
+    DDoS Taşıma için: completed | reschedule | keep_unscheduled
+    Bilgi için:       keep | completed  (keep = raporda kalmaya devam etsin)
+    """
     action: str = Field(
         ...,
-        description="completed | reschedule | keep_unscheduled",
-        pattern="^(completed|reschedule|keep_unscheduled)$",
+        description="completed | reschedule | keep_unscheduled | keep",
+        pattern="^(completed|reschedule|keep_unscheduled|keep)$",
     )
     new_occurs_at: Optional[datetime] = Field(
         default=None,
@@ -248,19 +252,39 @@ def pending_resolution(
     db: Session = Depends(get_db),
     _=Depends(require_operator),
 ):
-    """occurs_at zamanı geçmiş DDoS Taşıma + Bilgi girişlerini döndürür.
+    """Yeni rapor öncesi karar bekleyen girişler.
 
-    Yeni vardiya raporu hazırlanırken, operatöre bu girişler için karar
-    sorulur. Tüm vardiyalardaki girişleri tarar (sadece aktif vardiya değil)
-    çünkü bir önceki vardiyadan kalanlar yeni operatöre devredilir.
+    İki farklı kural birleştirilir (OR):
+      • DDoS Taşıma: occurs_at < now (zamanı geçmiş planlamalar)
+      • Bilgi:        bir önceki vardiyaya ait olan tüm Bilgi girişleri
+                      (occurs_at önemli değil; her yeni rapor sonunda kullanıcıya
+                       "raporda kalmaya devam etsin mi?" diye sorulur).
+
+    Aktif (henüz kapatılmamış) vardiyanın Bilgi girişleri **dahil edilmez** —
+    bunlar henüz devredilmedi, hâlâ aynı operatörün vardiyasında.
     """
+    from ..models import Shift  # circular import'tan kaçınmak için lokal
     now = datetime.now(timezone.utc)
+
+    # Aktif (ended_at IS NULL) vardiyaların ID'leri — bunlardaki Bilgi'leri hariç tut.
+    active_shift_ids = [
+        sid for (sid,) in db.query(Shift.id).filter(Shift.ended_at.is_(None)).all()
+    ]
+
     rows = (
         db.query(Entry).options(joinedload(Entry.author))
         .filter(Entry.entry_type.in_(RESOLVABLE_ENTRY_TYPES))
-        .filter(Entry.occurs_at.isnot(None))
-        .filter(Entry.occurs_at < now)
-        .order_by(Entry.occurs_at.asc())
+        .filter(
+            # DDoS: zamanı geçmiş planlamalar
+            ((Entry.entry_type == EntryType.ddos_transfer)
+             & Entry.occurs_at.isnot(None)
+             & (Entry.occurs_at < now))
+            |
+            # Bilgi: aktif vardiya dışındaki tüm Bilgi girişleri
+            ((Entry.entry_type == EntryType.info)
+             & (~Entry.shift_id.in_(active_shift_ids) if active_shift_ids else True))
+        )
+        .order_by(Entry.entry_type.asc(), Entry.occurs_at.asc().nullslast(), Entry.created_at.asc())
         .all()
     )
     return [_to_out(e) for e in rows]
@@ -323,6 +347,12 @@ def resolve_entry(
         entry.reminder_sent_at = None
         db.commit()
         db.refresh(entry)
+        audit(db, current, "entry.resolved", "entry", entry.id, audit_payload)
+        return _to_out(entry)
+
+    if payload.action == "keep":
+        # Bilgi: "raporda kalmaya devam etsin" → giriş aynen kalır, sadece
+        # audit log'a karar yazılır. State değişikliği yok.
         audit(db, current, "entry.resolved", "entry", entry.id, audit_payload)
         return _to_out(entry)
 

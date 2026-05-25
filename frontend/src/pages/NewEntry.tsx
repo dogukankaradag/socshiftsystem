@@ -41,6 +41,9 @@ export default function NewEntry() {
   const [error, setError] = useState<string | null>(null);
 
   const isNumeric = NUMERIC_ENTRY_TYPES.includes(entryType);
+  // "Planlanan zaman" alanı yalnızca DDoS Taşıma için açık.
+  // Diğer türlerde occurs_at her zaman null olarak gönderilir.
+  const allowsOccursAt = entryType === 'ddos_transfer';
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -64,7 +67,8 @@ export default function NewEntry() {
         title: null,
         body: isNumeric ? '' : body.trim(),
         numeric_value: isNumeric ? Number(numericValue) : null,
-        occurs_at: localInputToUtcIso(occursAt),
+        // occurs_at sadece DDoS Taşıma için kabul edilir; diğer türlerde null.
+        occurs_at: allowsOccursAt ? localInputToUtcIso(occursAt) : null,
       });
       nav('/');
     } catch (err: any) {
@@ -78,7 +82,7 @@ export default function NewEntry() {
     <div className="max-w-2xl space-y-4">
       <h1 className="text-2xl font-semibold text-gray-900 dark:text-slate-100">Yeni Vardiya Girişi</h1>
       <form onSubmit={onSubmit} className="card space-y-4">
-        <div className="grid grid-cols-2 gap-4">
+        <div className={`grid gap-4 ${allowsOccursAt ? 'grid-cols-2' : 'grid-cols-1'}`}>
           <div>
             <label className="label">Tür</label>
             <select
@@ -92,6 +96,10 @@ export default function NewEntry() {
                 } else {
                   setNumericValue('');
                 }
+                // DDoS dışına geçince planlı zaman alanını da temizle.
+                if (next !== 'ddos_transfer') {
+                  setOccursAt('');
+                }
               }}
             >
               {TYPES.map((t) => (
@@ -101,19 +109,21 @@ export default function NewEntry() {
               ))}
             </select>
           </div>
-          <div>
-            <label className="label">Planlanan Zaman (opsiyonel)</label>
-            <input
-              type="datetime-local"
-              className="input"
-              value={occursAt}
-              onChange={(e) => setOccursAt(e.target.value)}
-            />
-            <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
-              Olay ileride bir tarihte gerçekleşecekse saat (GMT+3) seçin.
-              Tarih gelene kadar tüm vardiya raporlarında hatırlatılır.
-            </p>
-          </div>
+          {allowsOccursAt && (
+            <div>
+              <label className="label">Planlanan Zaman (opsiyonel)</label>
+              <input
+                type="datetime-local"
+                className="input"
+                value={occursAt}
+                onChange={(e) => setOccursAt(e.target.value)}
+              />
+              <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
+                Taşıma ileride bir tarihte gerçekleşecekse saat (GMT+3) seçin.
+                Tarih gelene kadar tüm vardiya raporlarında hatırlatılır.
+              </p>
+            </div>
+          )}
         </div>
 
         {isNumeric ? (
