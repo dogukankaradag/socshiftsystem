@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     # Core
-    app_name: str = "Vardiya Devir Sistemi"
+    app_name: str = "MSSP Handover"
     environment: str = "development"
     api_prefix: str = "/api"
     cors_origins: str = "http://localhost:5173,http://localhost:3000,http://localhost,http://localhost:8080"

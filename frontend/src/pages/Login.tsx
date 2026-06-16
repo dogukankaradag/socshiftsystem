@@ -30,7 +30,7 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-brand-50 to-white dark:from-slate-900 dark:to-slate-800 px-4">
       <form onSubmit={onSubmit} className="card w-full max-w-sm space-y-4">
         <div>
-          <h1 className="text-xl font-semibold text-gray-900 dark:text-slate-100">Vardiya Devir Sistemi</h1>
+          <h1 className="text-xl font-semibold text-gray-900 dark:text-slate-100">MSSP Handover</h1>
           <p className="text-sm text-gray-500 dark:text-slate-400">Devam etmek için giriş yapın</p>
         </div>
         <div>

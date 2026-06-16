@@ -90,8 +90,10 @@ _Bu rapor Vardiya Devir Sistemi tarafından {{ now }} ({{ tz }}) zamanında otom
 # v0.6.0: Mail body için kompakt, Outlook/Gmail uyumlu tablo şablonu.
 # Müşterinin paylaştığı görsel örneğe sadık: greeting + tek tablo + footer.
 # Tüm CSS inline; class kullanılmaz (kurumsal Outlook bazı class'ları siler).
-# Bilgi (info) girişleri tablonun L2/Eskale satırında kırmızı + kalın
-# vurgulanır (önem arz eden, sonraki vardiyaya taşınan kalıcı uyarılar).
+# v0.8.5: Her giriş türü kendi satırı altında gösterilir; ilgili girişi
+# olmayan satırlar render edilmez (boş başlık yok). Bilgi ve L2 ayrı
+# satırlara bölündü (önceden L2 satırı altında karışıktı). Bilgi
+# kırmızı + kalın vurgulanmaya devam eder (kalıcı uyarı niteliği).
 _HTML_TEMPLATE = Template("""<!doctype html>
 <html lang="tr"><head><meta charset="utf-8"><title>{{ title }}</title></head>
 <body style="font-family:Calibri,Segoe UI,Arial,sans-serif;color:#1f2937;font-size:14px;line-height:1.5;margin:0;padding:16px;">
@@ -121,28 +123,37 @@ _HTML_TEMPLATE = Template("""<!doctype html>
   </tr>
 
   {# --- Telefon ile gelen Müşteri Çağrıları --- #}
+  {% if grouped['callers'] %}
   <tr>
     <td style="background:#dce6f1;border:1px solid #7a7a7a;font-weight:bold;vertical-align:top;">
       Telefon ile gelen Müşteri Çağrıları
     </td>
     <td colspan="2" style="border:1px solid #7a7a7a;vertical-align:top;">
-      {% if grouped['callers'] %}{% for e in grouped['callers'] %}
-        <div>{{ entry_display(e)[1] }}</div>
-      {% endfor %}{% endif %}
+      <ul style="margin:0;padding-left:18px;">
+      {% for e in grouped['callers'] %}<li>
+        {% if e.caller_org_name %}<b>{{ e.caller_org_name }}</b>{% endif %}
+        {% if e.caller_contact_name %} &mdash; {{ e.caller_contact_name }}{% endif %}
+        {% if e.caller_contact_phone %} ({{ e.caller_contact_phone }}){% endif %}
+        {% if e.body %} &middot; <span style="color:#555;">{{ e.body }}</span>{% endif %}
+      </li>{% endfor %}
+      </ul>
     </td>
   </tr>
+  {% endif %}
 
   {# --- Yapılan Önemli İşler / Olaylar --- #}
+  {% if grouped['important_work'] %}
   <tr>
     <td style="background:#dce6f1;border:1px solid #7a7a7a;font-weight:bold;vertical-align:top;">
       Yapılan Önemli İşler/Olaylar
     </td>
     <td colspan="2" style="border:1px solid #7a7a7a;vertical-align:top;">
-      {% if grouped['important_work'] %}<ul style="margin:0;padding-left:18px;">
+      <ul style="margin:0;padding-left:18px;">
       {% for e in grouped['important_work'] %}<li>{{ entry_display(e)[1] }}</li>{% endfor %}
-      </ul>{% endif %}
+      </ul>
     </td>
   </tr>
+  {% endif %}
 
   {# --- DDoS Taşıma --- #}
   {% if grouped['ddos_transfer'] %}
@@ -160,23 +171,37 @@ _HTML_TEMPLATE = Template("""<!doctype html>
   </tr>
   {% endif %}
 
-  {# --- L2'ye eskale + Bilgi (Bilgi kırmızı+kalın olarak en üstte) --- #}
+  {# --- Bilgi (v0.8.5: ayrı satır; kırmızı + kalın — kalıcı uyarı) --- #}
+  {% if grouped['info'] %}
   <tr>
     <td style="background:#dce6f1;border:1px solid #7a7a7a;font-weight:bold;vertical-align:top;">
-      L2'ye eskale edilen önemli olay/konu
+      Bilgi
     </td>
     <td colspan="2" style="border:1px solid #7a7a7a;vertical-align:top;">
-      {% if grouped['info'] or grouped['l2_escalation'] %}<ul style="margin:0;padding-left:18px;">
-        {# Bilgi girişleri kalıcı uyarı — kırmızı + kalın #}
+      <ul style="margin:0;padding-left:18px;">
         {% for e in grouped['info'] %}
         <li style="color:#c00000;font-weight:bold;">{{ entry_display(e)[1] }}</li>
         {% endfor %}
+      </ul>
+    </td>
+  </tr>
+  {% endif %}
+
+  {# --- L2'ye Eskale Edilen Konu (v0.8.5: ayrı satır, sadece l2_escalation girişi varsa) --- #}
+  {% if grouped['l2_escalation'] %}
+  <tr>
+    <td style="background:#dce6f1;border:1px solid #7a7a7a;font-weight:bold;vertical-align:top;">
+      L2'ye Eskale Edilen Konu
+    </td>
+    <td colspan="2" style="border:1px solid #7a7a7a;vertical-align:top;">
+      <ul style="margin:0;padding-left:18px;">
         {% for e in grouped['l2_escalation'] %}
         <li>{{ entry_display(e)[1] }}</li>
         {% endfor %}
-      </ul>{% endif %}
+      </ul>
     </td>
   </tr>
+  {% endif %}
 
   {# --- Yaklaşan planlı (diğer vardiyalardan taşınan DDoS taşımaları) --- #}
   {% if upcoming %}

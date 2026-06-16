@@ -5,7 +5,8 @@ from typing import List, Optional
 from pydantic import BaseModel, EmailStr, Field, ConfigDict
 
 from .models import (
-    EntryType, IncidentStatus, Priority, ReportStatus, Role, RosterTeam, ShiftType,
+    DailyDutyType, EntryType, IncidentStatus, MonthlyShiftSlot, PersonnelGroup,
+    PersonnelLocation, Priority, ReportStatus, Role, RosterTeam, ShiftType,
 )
 
 
@@ -25,7 +26,7 @@ class LoginRequest(BaseModel):
 class UserBase(BaseModel):
     email: EmailStr
     full_name: str
-    role: Role = Role.operator
+    role: Role = Role.standard
 
 
 class UserCreate(UserBase):
@@ -80,6 +81,10 @@ class EntryBase(BaseModel):
     # Olayın planlanan gerçekleşme zamanı (UTC). Null ise anlık girişi temsil eder.
     occurs_at: Optional[datetime] = None
     incident_id: Optional[int] = None
+    # --- "Arayanlar" (callers) snapshot alanları (v0.6.1+) ---
+    caller_org_name: Optional[str] = Field(default=None, max_length=255)
+    caller_contact_name: Optional[str] = Field(default=None, max_length=255)
+    caller_contact_phone: Optional[str] = Field(default=None, max_length=64)
 
 
 class EntryCreate(EntryBase):
@@ -92,6 +97,9 @@ class EntryUpdate(BaseModel):
     numeric_value: Optional[int] = Field(default=None, ge=0)
     occurs_at: Optional[datetime] = None
     incident_id: Optional[int] = None
+    caller_org_name: Optional[str] = Field(default=None, max_length=255)
+    caller_contact_name: Optional[str] = Field(default=None, max_length=255)
+    caller_contact_phone: Optional[str] = Field(default=None, max_length=64)
 
 
 class EntryOut(EntryBase):
@@ -207,6 +215,13 @@ class TrendPoint(BaseModel):
     total: int
 
 
+class CallerStat(BaseModel):
+    """Kullanıcı bazlı 'Arayanlar' girişi sayısı (performans metriği)."""
+    user_id: int
+    user_name: str
+    count: int
+
+
 class AnalyticsOverview(BaseModel):
     total_entries: int
     open_incidents: int
@@ -216,6 +231,9 @@ class AnalyticsOverview(BaseModel):
     totals_30d: List[TypeTotal]
     top_tags: List[dict]
     recurring_titles: List[dict]
+    # v0.6.1: "Arayanlar" girişlerinin son 30 günlük kullanıcı dağılımı.
+    # Hangi operatör kaç çağrı aldı — performans değerlendirmesi için.
+    callers_by_user_30d: List[CallerStat] = []
 
 
 # ---------- Mailing lists ----------
@@ -282,6 +300,176 @@ class RosterUploadResult(BaseModel):
     upload_batch: str
     parsed_count: int
     team: RosterTeam
+    warnings: List[str] = []
+
+
+# --- v0.6.1: Müşteri İrtibat Listesi -----------------------------------------
+class CustomerContactCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    phone: Optional[str] = Field(default=None, max_length=64)
+    notes: Optional[str] = Field(default=None, max_length=512)
+
+
+class CustomerContactUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    phone: Optional[str] = Field(default=None, max_length=64)
+    notes: Optional[str] = Field(default=None, max_length=512)
+
+
+class CustomerContactOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    org_id: int
+    name: str
+    phone: Optional[str]
+    notes: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+
+class CustomerOrgCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    notes: Optional[str] = None
+    # İlk kişiyi de aynı çağrıda oluşturmak için opsiyonel:
+    initial_contact: Optional[CustomerContactCreate] = None
+
+
+class CustomerOrgUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    notes: Optional[str] = None
+
+
+class CustomerOrgOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    notes: Optional[str]
+    contacts: List[CustomerContactOut] = []
+    created_at: datetime
+    updated_at: datetime
+
+
+# --- v0.7.0: Aylık vardiya jeneratörü ----------------------------------------
+class PersonnelCreate(BaseModel):
+    full_name: str = Field(min_length=1, max_length=128)
+    location: PersonnelLocation
+    group: PersonnelGroup
+    is_oncall_only: bool = False
+    is_fixed_a: bool = False
+    is_active: bool = True
+    notes: Optional[str] = Field(default=None, max_length=512)
+
+
+class PersonnelUpdate(BaseModel):
+    full_name: Optional[str] = Field(default=None, min_length=1, max_length=128)
+    location: Optional[PersonnelLocation] = None
+    group: Optional[PersonnelGroup] = None
+    is_oncall_only: Optional[bool] = None
+    is_fixed_a: Optional[bool] = None
+    is_active: Optional[bool] = None
+    notes: Optional[str] = Field(default=None, max_length=512)
+
+
+class PersonnelOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    full_name: str
+    location: PersonnelLocation
+    group: PersonnelGroup
+    is_oncall_only: bool
+    is_fixed_a: bool
+    is_active: bool
+    notes: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+
+class MonthlyShiftAssignmentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    personnel_id: int
+    personnel_name: Optional[str] = None  # _to_out tarafından doldurulur
+    day: date
+    slot: MonthlyShiftSlot
+    modified_by_user_id: Optional[int]
+    note: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+
+class MonthlyShiftAssignmentUpdate(BaseModel):
+    """Super admin manuel düzenleme — slot ve/veya note değiştirir."""
+    slot: Optional[MonthlyShiftSlot] = None
+    note: Optional[str] = Field(default=None, max_length=256)
+
+
+class MonthlyShiftAssignmentCreate(BaseModel):
+    """Super admin yeni bir kayıt elle eklediğinde."""
+    personnel_id: int
+    day: date
+    slot: MonthlyShiftSlot
+    note: Optional[str] = Field(default=None, max_length=256)
+
+
+class GenerateMonthlyShiftRequest(BaseModel):
+    """POST /monthly-shifts/generate payload'u."""
+    year: int = Field(ge=2020, le=2100)
+    month: int = Field(ge=1, le=12)
+    # True ise mevcut ayın TÜM kayıtlarını siler (manuel müdahaleler dahil).
+    # False ise sadece modified_by_user_id IS NULL olan kayıtları yeniden yazar.
+    overwrite_manual: bool = False
+
+
+class GenerateMonthlyShiftResult(BaseModel):
+    year: int
+    month: int
+    days_generated: int
+    assignments_created: int
+    assignments_preserved: int  # manuel müdahale korundu
+    warnings: List[str] = []
+
+
+# --- v0.8.1: Dağıtıcı + Öğlen Nöbetçi (DailyDuty) ----------------------------
+class DailyDutyOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    day: date
+    duty_type: DailyDutyType
+    personnel_id: int
+    personnel_name: Optional[str] = None  # _to_out tarafından doldurulur
+    modified_by_user_id: Optional[int]
+    note: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+
+class DailyDutyCreate(BaseModel):
+    """Super admin elle bir görev ekler."""
+    day: date
+    duty_type: DailyDutyType
+    personnel_id: int
+    note: Optional[str] = Field(default=None, max_length=256)
+
+
+class DailyDutyUpdate(BaseModel):
+    personnel_id: Optional[int] = None
+    note: Optional[str] = Field(default=None, max_length=256)
+
+
+class GenerateDailyDutyRequest(BaseModel):
+    year: int = Field(ge=2020, le=2100)
+    month: int = Field(ge=1, le=12)
+    overwrite_manual: bool = False
+
+
+class GenerateDailyDutyResult(BaseModel):
+    year: int
+    month: int
+    weekdays_generated: int
+    assignments_created: int
+    assignments_preserved: int
+    per_person_distributor: dict[str, int] = {}  # personel_adı → atanan dağıtıcı sayısı
+    per_person_lunch: dict[str, int] = {}
     warnings: List[str] = []
 
 

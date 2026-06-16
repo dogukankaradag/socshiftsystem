@@ -12,12 +12,27 @@ const nav = [
   { to: '/new', label: 'Yeni Giriş' },
   { to: '/incidents', label: 'Olaylar' },
   { to: '/reports', label: 'Raporlar' },
+  { to: '/customers', label: 'Müşteri İrtibat Listesi' },
   { to: '/analytics', label: 'Analitik' },
 ];
 
-const rosterMenu = [
+// v0.6.3 / v0.7.2: Üst menüdeki dropdown başlığı "Vardiya Listesi".
+// Alt kalemlerin tümü her giriş yapan kullanıcıya görünür; düzenleme
+// yetkisi sayfa içinde rol kontrolüyle yapılır:
+//   - Nöbetçi Listesi (L2 + MSSP) — herkes okur, super_admin düzenler
+//   - Dağıtıcı Listesi (Aylık Dağıtıcı + Öğlen Nöbetçileri) — aynı yetki
+//   - Aylık Vardiya Listesi — herkes okur (read-only), super_admin
+//                              Otomatik Üret / hücre düzenleme yapabilir.
+interface RosterMenuItem {
+  to: string;
+  label: string;
+  superAdminOnly?: boolean;
+}
+
+const rosterMenu: RosterMenuItem[] = [
   { to: '/roster', label: 'Nöbetçi Listesi' },
   { to: '/distributors', label: 'Dağıtıcı Listesi' },
+  { to: '/aylik-vardiya', label: 'Aylık Vardiya Listesi' },
 ];
 
 function RosterMenu() {
@@ -25,7 +40,13 @@ function RosterMenu() {
   const ref = useRef<HTMLDivElement>(null);
   const location = useLocation();
   const navigate = useNavigate();
-  const isActive = rosterMenu.some((m) => location.pathname.startsWith(m.to));
+  const { user } = useAuth();
+
+  // Kullanıcı rolüne göre görünür alt kalemler.
+  const visibleItems = rosterMenu.filter(
+    (m) => !m.superAdminOnly || user?.role === 'super_admin',
+  );
+  const isActive = visibleItems.some((m) => location.pathname.startsWith(m.to));
 
   // Sayfa değiştiğinde dropdown'u kapat.
   useEffect(() => {
@@ -64,7 +85,7 @@ function RosterMenu() {
             : 'text-gray-600 hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-slate-700'
         }`}
       >
-        Nöbetçi Listesi
+        Vardiya Listesi
         <svg
           viewBox="0 0 20 20"
           width="12"
@@ -80,10 +101,10 @@ function RosterMenu() {
       {open && (
         <div
           role="menu"
-          className="absolute left-0 mt-1 min-w-[200px] rounded-md border border-gray-200 bg-white shadow-lg
+          className="absolute left-0 mt-1 min-w-[220px] rounded-md border border-gray-200 bg-white shadow-lg
                      dark:border-slate-700 dark:bg-slate-800 z-30 py-1"
         >
-          {rosterMenu.map((m) => {
+          {visibleItems.map((m) => {
             const active = location.pathname === m.to;
             return (
               <button
@@ -146,7 +167,7 @@ export default function Layout() {
       <header className="bg-white border-b border-gray-200 shadow-sm dark:bg-slate-800 dark:border-slate-700">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-6">
           <div className="font-semibold text-lg text-brand-700 dark:text-brand-400">
-            Vardiya Devir Sistemi
+            MSSP Handover
           </div>
           <nav className="flex gap-1 flex-1 items-center">
             {nav.map((n) => (
@@ -168,7 +189,7 @@ export default function Layout() {
                 {n.to === '/reports' && <RosterMenu />}
               </span>
             ))}
-            {user?.role === 'admin' && (
+            {(user?.role === 'standard' || user?.role === 'super_admin') && (
               <NavLink
                 to="/admin"
                 className={({ isActive }) =>
@@ -201,7 +222,7 @@ export default function Layout() {
         <Outlet />
       </main>
       <footer className="text-center text-xs text-gray-400 py-4 dark:text-slate-500">
-        Vardiya Devir Sistemi &middot; v0.6.0
+        MSSP Handover &middot; v0.8.12
       </footer>
     </div>
   );

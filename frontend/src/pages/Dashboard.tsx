@@ -17,6 +17,16 @@ function entryDisplayBody(e: Entry): string {
   if (NUMERIC_ENTRY_TYPES.includes(e.entry_type) && e.numeric_value != null) {
     return `Adet: ${e.numeric_value}`;
   }
+  // "Arayanlar": kurum + kişi + telefon (varsa) tek satırda; notlar varsa altta.
+  if (e.entry_type === 'callers') {
+    const parts: string[] = [];
+    if (e.caller_org_name) parts.push(e.caller_org_name);
+    if (e.caller_contact_name) parts.push(e.caller_contact_name);
+    if (e.caller_contact_phone) parts.push(`(${e.caller_contact_phone})`);
+    const head = parts.join(' — ');
+    if (e.body) return head ? `${head}\n${e.body}` : e.body;
+    return head || e.title || '';
+  }
   return e.body || e.title || '';
 }
 
@@ -70,27 +80,42 @@ export default function Dashboard() {
 
   async function load() {
     setLoading(true);
+    setError(null);
     try {
       const s = await api.get('/shifts/current');
       setShift(s.data);
-      const [e, u, o, p] = await Promise.all([
-        // Panel sade kalsın diye zamanı geçmiş planlamaları gizliyoruz.
-        // Sadece occurs_at boş olanlar + henüz zamanı gelmemiş olanlar görünür.
-        // Analitik sayfası ham veriyi kullanmaya devam eder. Bekleyen
-        // (geçmiş planlı DDoS Taşıma + Bilgi) girişler ayrı banner'da gösterilir.
+
+      // Çekirdek sayfa yükleri (entries / upcoming / analytics) — biri patlarsa
+      // hepsi patlar (sayfa ana içerikten yoksun olur).
+      const [e, u, o] = await Promise.all([
         api.get('/entries', {
           params: { shift_id: s.data.id, limit: 20, hide_past_scheduled: true },
         }),
         api.get('/entries/upcoming', { params: { limit: 10 } }),
         api.get('/analytics/overview'),
-        api.get<Entry[]>('/entries/pending-resolution'),
       ]);
       setEntries(e.data);
       setUpcoming(u.data);
       setOverview(o.data);
-      setPendingCount(p.data.length);
+
+      // Bekleyen karar sayımı best-effort: backend'de bir hata olursa banner
+      // gözükmesin ama panel yine de açılsın. (Backend yeni kolonları/tabloları
+      // hâlâ migrate etmemiş olabilir veya başka bir sebepten 500 dönebilir.)
+      try {
+        const p = await api.get<Entry[]>('/entries/pending-resolution');
+        setPendingCount(p.data.length);
+      } catch (perr: any) {
+        // Konsola yaz ki teşhis edilebilsin; UI'da banner sıfırlanır.
+        // eslint-disable-next-line no-console
+        console.warn('pending-resolution yüklenemedi:', perr?.response?.data || perr);
+        setPendingCount(0);
+      }
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Yüklenemedi');
+      const detail =
+        err?.response?.data?.detail ||
+        err?.message ||
+        'Yüklenemedi';
+      setError(`Yükleme hatası: ${detail}`);
     } finally {
       setLoading(false);
     }

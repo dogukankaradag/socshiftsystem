@@ -4,6 +4,7 @@ import {
   api,
   detectShiftType,
   downloadFile,
+  Entry,
   REPORT_STATUS_LABEL,
   Report,
   ReportStatus,
@@ -12,6 +13,13 @@ import {
   ShiftType,
 } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import ResolveScheduledModal from '../components/ResolveScheduledModal';
+
+// Reports sayfasından "Oluştur" / "Planla" / "Oluştur & Gönder" akışları
+// bekleyen karar (geçmiş DDoS Taşıma + bir önceki vardiyadan kalan Bilgi)
+// olup olmadığını backend'e sorar; varsa önce ResolveScheduledModal açar,
+// tüm kararlar verildikten sonra orijinal aksiyonu çağırır.
+type GenerateOpts = { dispatch: boolean; schedule: boolean };
 
 function splitListInput(v: string): string[] {
   return v
@@ -39,7 +47,8 @@ const splitList = splitListInput;
 
 export default function Reports() {
   const { user } = useAuth();
-  const canGenerate = user?.role === 'supervisor' || user?.role === 'admin';
+  // v0.6.2: 2 rollü sistem — hem standard hem super_admin rapor oluşturabilir.
+  const canGenerate = user?.role === 'standard' || user?.role === 'super_admin';
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [selectedShift, setSelectedShift] = useState<number | ''>('');
   const [reports, setReports] = useState<Report[]>([]);
@@ -55,6 +64,13 @@ export default function Reports() {
   const [scheduleAt, setScheduleAt] = useState(''); // local datetime (GMT+3)
   const [subjectOverride, setSubjectOverride] = useState('');
 
+  // Karar pop-up'ı için durum. "intent" — kullanıcı hangi generate akışını
+  // tetiklemişti? Modal kapanınca (tüm kararlar bittiğinde) bu intent'i
+  // otomatik tetikleyeceğiz, böylece kullanıcı butona ikinci kez basmak
+  // zorunda kalmaz.
+  const [resolveOpen, setResolveOpen] = useState(false);
+  const [pendingIntent, setPendingIntent] = useState<GenerateOpts | null>(null);
+
   async function load() {
     const [s, r] = await Promise.all([
       api.get('/shifts', { params: { limit: 20 } }),
@@ -68,6 +84,29 @@ export default function Reports() {
   useEffect(() => {
     load();
   }, []);
+
+  /**
+   * "Oluştur" butonları için sarmalayıcı. Önce bekleyen karar var mı diye
+   * backend'e sorar; varsa Modal'ı açar ve intent'i saklar (Modal kapanınca
+   * generate çalışır). Bekleyen karar yoksa doğrudan generate'i çağırır.
+   */
+  async function generateWithResolutionCheck(options: GenerateOpts) {
+    if (!selectedShift) return;
+    try {
+      const r = await api.get<Entry[]>('/entries/pending-resolution');
+      if (r.data.length > 0) {
+        setPendingIntent(options);
+        setResolveOpen(true);
+        setMsg(
+          `${r.data.length} bekleyen karar var — önce her giriş için karar verin, ardından rapor otomatik oluşturulacak.`,
+        );
+        return;
+      }
+    } catch {
+      /* Sorgu hata verirse normal akışa düş — kullanıcıyı bloklamayalım */
+    }
+    await generate(options);
+  }
 
   async function generate(options: { dispatch: boolean; schedule: boolean }) {
     if (!selectedShift) return;
@@ -268,21 +307,21 @@ export default function Reports() {
             <button
               className="btn-ghost"
               disabled={working}
-              onClick={() => generate({ dispatch: false, schedule: false })}
+              onClick={() => generateWithResolutionCheck({ dispatch: false, schedule: false })}
             >
               Taslak oluştur
             </button>
             <button
               className="btn-ghost"
               disabled={working || !scheduleAt}
-              onClick={() => generate({ dispatch: false, schedule: true })}
+              onClick={() => generateWithResolutionCheck({ dispatch: false, schedule: true })}
             >
               Planla (GMT+3)
             </button>
             <button
               className="btn-primary"
               disabled={working}
-              onClick={() => generate({ dispatch: true, schedule: false })}
+              onClick={() => generateWithResolutionCheck({ dispatch: true, schedule: false })}
             >
               Oluştur & Gönder
             </button>
@@ -395,6 +434,25 @@ export default function Reports() {
           onSaved={() => {
             setEditing(null);
             load();
+          }}
+        />
+      )}
+
+      {resolveOpen && (
+        <ResolveScheduledModal
+          onClose={() => {
+            setResolveOpen(false);
+            setPendingIntent(null);
+          }}
+          onAllResolved={async () => {
+            // Tüm kararlar bittiğinde: modal'ı kapat, intent'i tetikle.
+            setResolveOpen(false);
+            const intent = pendingIntent;
+            setPendingIntent(null);
+            if (intent) {
+              setMsg('Kararlar tamamlandı, rapor oluşturuluyor…');
+              await generate(intent);
+            }
           }}
         />
       )}

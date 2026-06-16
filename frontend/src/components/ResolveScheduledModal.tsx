@@ -253,28 +253,16 @@ export default function ResolveScheduledModal({
 
                       <fieldset className="space-y-1.5 text-sm text-gray-700 dark:text-slate-200">
                         {e.entry_type === 'info' ? (
-                          // --- BİLGİ: 2 seçenek (evet / hayır) ---
+                          // --- BİLGİ: 2 seçenek (sona erdi / kalmaya devam) ---
+                          // "Hayır, kalmaya devam edecek" seçilirse entry silinmez,
+                          // bir sonraki vardiya raporu oluşturulurken aynı soru
+                          // tekrar sorulur (entry'nin shift_id'si değişmez ve aktif
+                          // olmayan vardiyaya ait olduğu için pending-resolution'a
+                          // yine düşer).
                           <>
                             <div className="text-sm text-gray-700 dark:text-slate-200">
-                              Bu bilgi girişi yeni vardiya raporunda kalmaya devam etmeli mi?
+                              Bu bilgi durumu sona erdi mi?
                             </div>
-                            <label className="flex items-start gap-2">
-                              <input
-                                type="radio"
-                                name={`act-${e.id}`}
-                                className="mt-0.5"
-                                checked={action === 'keep'}
-                                onChange={() =>
-                                  setActions((p) => ({ ...p, [e.id]: 'keep' }))
-                                }
-                              />
-                              <span>
-                                <b>Evet, raporda kalmaya devam etsin</b>{' '}
-                                <span className="text-xs text-gray-500 dark:text-slate-400">
-                                  — sonraki vardiya da bu bilgiyi görsün.
-                                </span>
-                              </span>
-                            </label>
                             <label className="flex items-start gap-2">
                               <input
                                 type="radio"
@@ -286,9 +274,29 @@ export default function ResolveScheduledModal({
                                 }
                               />
                               <span>
-                                <b>Hayır, silinsin</b>{' '}
+                                <b>Evet, durum sona erdi</b>{' '}
                                 <span className="text-xs text-gray-500 dark:text-slate-400">
-                                  — durum sona erdi, yeni rapora dahil edilmesin.
+                                  — giriş silinsin, sonraki vardiya raporlarına
+                                  dahil edilmesin.
+                                </span>
+                              </span>
+                            </label>
+                            <label className="flex items-start gap-2">
+                              <input
+                                type="radio"
+                                name={`act-${e.id}`}
+                                className="mt-0.5"
+                                checked={action === 'keep'}
+                                onChange={() =>
+                                  setActions((p) => ({ ...p, [e.id]: 'keep' }))
+                                }
+                              />
+                              <span>
+                                <b>Hayır, bu bilgi kalmaya devam edecek</b>{' '}
+                                <span className="text-xs text-gray-500 dark:text-slate-400">
+                                  — sonraki vardiya raporu oluşturulurken aynı
+                                  soru tekrar sorulacak; her vardiyada karar
+                                  yeniden verilir.
                                 </span>
                               </span>
                             </label>

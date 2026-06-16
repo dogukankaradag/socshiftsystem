@@ -26,7 +26,11 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 
-from ..auth import require_operator, require_supervisor
+from ..auth import require_authenticated, require_super_admin
+# v0.6.2: Vardiya Listesi okuma her standart kullanıcıya açık (read-only);
+# düzenleme/ekleme/silme/yükleme yalnızca super_admin yetkisinde.
+require_operator = require_authenticated
+require_supervisor = require_super_admin
 from ..database import get_db
 from ..models import OnCallRoster, RosterTeam, User
 from ..schemas import RosterEntryCreate, RosterEntryOut, RosterEntryUpdate, RosterUploadResult

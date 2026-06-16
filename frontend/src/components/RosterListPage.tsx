@@ -44,7 +44,9 @@ export default function RosterListPage({
   uploadHint,
 }: RosterListPageProps) {
   const { user } = useAuth();
-  const canEdit = user?.role === 'supervisor' || user?.role === 'admin';
+  // v0.6.2: Vardiya Listesi düzenleme yalnızca super_admin yetkisinde.
+  // Standart kullanıcı sayfayı görür ama buton görmez (read-only).
+  const canEdit = user?.role === 'super_admin';
 
   const [team, setTeam] = useState<RosterTeam>(teams[0]);
   const [items, setItems] = useState<RosterEntry[]>([]);
@@ -296,35 +298,35 @@ export default function RosterListPage({
                     </button>
                   )}
                 </div>
-                <table className="w-full text-sm">
-                  <thead className="text-left text-xs uppercase text-gray-500 dark:text-slate-400">
+                <table className="w-full text-base">
+                  <thead className="text-left text-sm uppercase font-bold text-gray-700 dark:text-slate-300 bg-gray-50 dark:bg-slate-700/30">
                     <tr>
-                      <th className="px-4 py-2">Ad Soyad</th>
-                      <th className="px-4 py-2">Başlangıç</th>
-                      <th className="px-4 py-2">Bitiş</th>
-                      {showShiftCol && <th className="px-4 py-2">Vardiya</th>}
-                      <th className="px-4 py-2">Not</th>
-                      {canEdit && <th className="px-4 py-2"></th>}
+                      <th className="px-4 py-3">Ad Soyad</th>
+                      <th className="px-4 py-3">Başlangıç</th>
+                      <th className="px-4 py-3">Bitiş</th>
+                      {showShiftCol && <th className="px-4 py-3">Vardiya</th>}
+                      <th className="px-4 py-3">Not</th>
+                      {canEdit && <th className="px-4 py-3"></th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
                     {rows.map((r) => (
                       <tr key={r.id}>
-                        <td className="px-4 py-2 font-medium text-gray-900 dark:text-slate-100">
+                        <td className="px-4 py-3 font-semibold text-gray-900 dark:text-slate-100">
                           {r.person_name}
                         </td>
-                        <td className="px-4 py-2 text-gray-700 dark:text-slate-200">
+                        <td className="px-4 py-3 text-gray-800 dark:text-slate-200">
                           {fmtDate(r.start_date)}
                         </td>
-                        <td className="px-4 py-2 text-gray-700 dark:text-slate-200">
+                        <td className="px-4 py-3 text-gray-800 dark:text-slate-200">
                           {fmtDate(r.end_date)}
                         </td>
                         {showShiftCol && (
-                          <td className="px-4 py-2 text-gray-700 dark:text-slate-200">
+                          <td className="px-4 py-3 text-gray-800 dark:text-slate-200 font-medium">
                             {r.shift_label || '—'}
                           </td>
                         )}
-                        <td className="px-4 py-2 text-gray-500 dark:text-slate-400">
+                        <td className="px-4 py-3 text-gray-600 dark:text-slate-400">
                           {r.notes || '—'}
                         </td>
                         {canEdit && (

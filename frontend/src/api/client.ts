@@ -36,7 +36,10 @@ export async function downloadFile(path: string, filename: string) {
   window.URL.revokeObjectURL(url);
 }
 
-export type Role = 'operator' | 'supervisor' | 'admin';
+// v0.6.2: 2 rollü sistem (standart / super_admin). Eski operator/supervisor/admin
+// tipleri tamamen kaldırıldı; backend migration mevcut kullanıcıları standart'a
+// çekiyor ve seed admin'i super_admin'e yükseltiyor.
+export type Role = 'standard' | 'super_admin';
 export type Priority = 'low' | 'medium' | 'high' | 'critical';
 export type EntryType =
   | 'ddos_transfer'
@@ -70,9 +73,8 @@ export const PRIORITY_LABEL: Record<Priority, string> = {
 };
 
 export const ROLE_LABEL: Record<Role, string> = {
-  operator: 'operatör',
-  supervisor: 'süpervizör',
-  admin: 'yönetici',
+  standard: 'Standart Kullanıcı',
+  super_admin: 'Super Admin',
 };
 
 export const SHIFT_TYPE_LABEL: Record<ShiftType, string> = {
@@ -135,6 +137,10 @@ export interface Entry {
   tags: string | null;
   incident_id: number | null;
   is_duplicate_of: number | null;
+  // v0.6.1: "Arayanlar" snapshot alanları
+  caller_org_name: string | null;
+  caller_contact_name: string | null;
+  caller_contact_phone: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -176,6 +182,12 @@ export interface TypeTotal {
   total: number;
 }
 
+export interface CallerStat {
+  user_id: number;
+  user_name: string;
+  count: number;
+}
+
 export interface AnalyticsOverview {
   total_entries: number;
   open_incidents: number;
@@ -185,6 +197,8 @@ export interface AnalyticsOverview {
   totals_30d: TypeTotal[];
   top_tags: { tag: string; count: number }[];
   recurring_titles: { title: string; count: number }[];
+  // v0.6.1: "Arayanlar" girişlerinin son 30 günlük kullanıcı dağılımı
+  callers_by_user_30d?: CallerStat[];
 }
 
 // Roster (Nöbetçi Listesi) + Distributor (Dağıtıcı Listesi)
@@ -224,4 +238,155 @@ export interface RosterUploadResult {
   parsed_count: number;
   team: RosterTeam;
   warnings: string[];
+}
+
+// v0.7.0: Aylık vardiya jeneratörü
+export type PersonnelLocation = 'istanbul' | 'ankara';
+export type PersonnelGroup = 'fixed_a' | 'istanbul' | 'ankara';
+export type MonthlyShiftSlot =
+  | 'a_fixed'
+  | 'a_ankara'
+  | 'a_istanbul'
+  | 'b_shift'
+  | 'c_shift'
+  | 'oncall'
+  | 'leave'
+  | 'off'
+  | 'wfh';
+
+export const SLOT_LABEL: Record<MonthlyShiftSlot, string> = {
+  a_fixed: 'A (Sabit)',
+  a_ankara: 'A (Ank)',
+  a_istanbul: 'A (İst)',
+  b_shift: 'B',
+  c_shift: 'C',
+  oncall: 'On-Call',
+  leave: 'İzin',
+  off: 'Off',
+  wfh: 'Evden Çalışma',
+};
+
+export const SLOT_SHORT: Record<MonthlyShiftSlot, string> = {
+  a_fixed: 'A*',
+  a_ankara: 'A',
+  a_istanbul: 'A',
+  b_shift: 'B',
+  c_shift: 'C',
+  oncall: 'ON',
+  leave: 'İZ',
+  off: 'Off',
+  wfh: 'EV',
+};
+
+// Slot bazlı CSS rengi (Tailwind class'larıyla uyumlu).
+// v0.8.0: 'leave' (izinli) artık belirgin kırmızı + kalın border — kullanıcı
+// talebi: izinli kişiler hızlıca göze çarpsın.
+export const SLOT_BG: Record<MonthlyShiftSlot, string> = {
+  a_fixed: 'bg-yellow-100 text-yellow-900 dark:bg-yellow-900/30 dark:text-yellow-200',
+  a_ankara: 'bg-amber-50 text-amber-900 dark:bg-amber-900/20 dark:text-amber-200',
+  a_istanbul: 'bg-amber-50 text-amber-900 dark:bg-amber-900/20 dark:text-amber-200',
+  b_shift: 'bg-orange-200 text-orange-900 dark:bg-orange-900/40 dark:text-orange-100',
+  c_shift: 'bg-orange-300 text-orange-950 dark:bg-orange-800/60 dark:text-orange-50',
+  oncall: 'bg-blue-200 text-blue-900 dark:bg-blue-900/40 dark:text-blue-100',
+  leave: 'bg-red-200 text-red-900 font-bold border-2 border-red-600 dark:bg-red-900/50 dark:text-red-100 dark:border-red-400',
+  off: 'bg-gray-100 text-gray-400 dark:bg-slate-800 dark:text-slate-500',
+  // v0.8.6: EV (Evden Çalışma) — yumuşak mor/lila tonu, normal olduğunu
+  // ama uzaktan olduğunu belirtmek için. Manuel atama; jeneratör üretmez.
+  wfh: 'bg-purple-100 text-purple-900 italic dark:bg-purple-900/40 dark:text-purple-100',
+};
+
+export const LOCATION_LABEL: Record<PersonnelLocation, string> = {
+  istanbul: 'İstanbul',
+  ankara: 'Ankara',
+};
+
+export const GROUP_LABEL: Record<PersonnelGroup, string> = {
+  fixed_a: 'Sabit A',
+  istanbul: 'İstanbul',
+  ankara: 'Ankara',
+};
+
+export interface Personnel {
+  id: number;
+  full_name: string;
+  location: PersonnelLocation;
+  group: PersonnelGroup;
+  is_oncall_only: boolean;
+  is_fixed_a: boolean;
+  is_active: boolean;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MonthlyShiftAssignment {
+  id: number;
+  personnel_id: number;
+  personnel_name: string | null;
+  day: string; // YYYY-MM-DD
+  slot: MonthlyShiftSlot;
+  modified_by_user_id: number | null;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GenerateMonthlyShiftResult {
+  year: number;
+  month: number;
+  days_generated: number;
+  assignments_created: number;
+  assignments_preserved: number;
+  warnings: string[];
+}
+
+// v0.8.1: Dağıtıcı + Öğlen Nöbetçi günlük atama
+export type DailyDutyType = 'distributor' | 'lunch';
+
+export const DUTY_LABEL: Record<DailyDutyType, string> = {
+  distributor: 'Aylık Dağıtıcı',
+  lunch: 'Öğlen Nöbetçi',
+};
+
+export interface DailyDuty {
+  id: number;
+  day: string; // YYYY-MM-DD
+  duty_type: DailyDutyType;
+  personnel_id: number;
+  personnel_name: string | null;
+  modified_by_user_id: number | null;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GenerateDailyDutyResult {
+  year: number;
+  month: number;
+  weekdays_generated: number;
+  assignments_created: number;
+  assignments_preserved: number;
+  per_person_distributor: Record<string, number>;
+  per_person_lunch: Record<string, number>;
+  warnings: string[];
+}
+
+// v0.6.1: Müşteri İrtibat Listesi (Customer Orgs + Contacts)
+export interface CustomerContact {
+  id: number;
+  org_id: number;
+  name: string;
+  phone: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CustomerOrg {
+  id: number;
+  name: string;
+  notes: string | null;
+  contacts: CustomerContact[];
+  created_at: string;
+  updated_at: string;
 }

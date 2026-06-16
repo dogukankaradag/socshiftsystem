@@ -121,6 +121,36 @@ export default function Analytics() {
         )}
       </div>
 
+      {/* v0.6.1: Çağrı yanıtlayan operatör dağılımı (son 30 gün) */}
+      <div className="card">
+        <h2 className="font-semibold mb-2">
+          Telefon Çağrıları — Kullanıcı Dağılımı (son 30 gün)
+        </h2>
+        <p className="text-xs text-gray-500 mb-3">
+          Hangi operatör kaç telefon çağrısı yanıtladı? "Arayanlar" türündeki
+          girişlerin author bazlı sayımı. Performans metriği olarak kullanılır.
+        </p>
+        {!data.callers_by_user_30d || data.callers_by_user_30d.length === 0 ? (
+          <div className="text-gray-500 text-sm">
+            Son 30 günde "Arayanlar" girişi yok.
+          </div>
+        ) : (
+          <ul className="divide-y divide-gray-100">
+            {data.callers_by_user_30d.map((c) => (
+              <li
+                key={c.user_id}
+                className="py-2 flex justify-between text-sm"
+              >
+                <span className="text-gray-800">{c.user_name}</span>
+                <span className="text-gray-500">
+                  {c.count} çağrı
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
       <div className="card">
         <h2 className="font-semibold mb-2">Tekrarlayan Konular (son 30 gün)</h2>
         {data.recurring_titles.length === 0 ? (

@@ -8,7 +8,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
 from .database import Base, SessionLocal, engine
-from .routers import analytics, auth, entries, incidents, mailing, reports, roster, shifts, users
+from .routers import (
+    analytics, auth, customers, daily_duty, entries, incidents, mailing, monthly_shifts,
+    reports, roster, shifts, users,
+)
 from .scheduler import start_scheduler, stop_scheduler
 from .seed import seed_defaults
 
@@ -68,3 +71,7 @@ app.include_router(reports.router, prefix=prefix)
 app.include_router(analytics.router, prefix=prefix)
 app.include_router(mailing.router, prefix=prefix)
 app.include_router(roster.router, prefix=prefix)
+app.include_router(customers.router, prefix=prefix)
+app.include_router(monthly_shifts.router, prefix=prefix)
+app.include_router(monthly_shifts.personnel_router, prefix=prefix)
+app.include_router(daily_duty.router, prefix=prefix)

@@ -1,7 +1,8 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   api,
+  CustomerOrg,
   ENTRY_TYPE_LABEL,
   EntryType,
   NUMERIC_ENTRY_TYPES,
@@ -18,13 +19,8 @@ const TYPES: EntryType[] = [
 ];
 
 // "YYYY-MM-DDTHH:mm" (yerel, GMT+3) girişini UTC ISO string'e çevir.
-// datetime-local input'u tarayıcının yerel saatinde döner; biz bunu operatörün
-// Europe/Istanbul saati olarak kabul edip +03:00 offset'i ile ISO string'e
-// dönüştürüyoruz. Böylece backend her zaman tutarlı UTC alır.
 function localInputToUtcIso(v: string): string | null {
   if (!v) return null;
-  // v örn: "2026-04-21T14:30"
-  // GMT+3 olarak yorumlayıp UTC'ye çevir:
   const iso = v.length === 16 ? `${v}:00+03:00` : `${v}+03:00`;
   const d = new Date(iso);
   if (isNaN(d.getTime())) return null;
@@ -40,10 +36,76 @@ export default function NewEntry() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // "Arayanlar" alanları (v0.6.1)
+  const [callerOrg, setCallerOrg] = useState('');
+  const [callerContact, setCallerContact] = useState('');
+  const [callerPhone, setCallerPhone] = useState('');
+  const [orgs, setOrgs] = useState<CustomerOrg[]>([]);
+
   const isNumeric = NUMERIC_ENTRY_TYPES.includes(entryType);
+  const isCallers = entryType === 'callers';
   // "Planlanan zaman" alanı yalnızca DDoS Taşıma için açık.
-  // Diğer türlerde occurs_at her zaman null olarak gönderilir.
   const allowsOccursAt = entryType === 'ddos_transfer';
+
+  // Müşteri İrtibat Listesi'ni autocomplete için yükle.
+  useEffect(() => {
+    api.get<CustomerOrg[]>('/customers/orgs')
+      .then((r) => setOrgs(r.data))
+      .catch(() => {/* sessizce yut — autocomplete olmaması formu bozmamalı */});
+  }, []);
+
+  // Seçili (veya tip eşleşen) kurumun irtibatları — kişi datalist için.
+  const matchedOrg = useMemo(() => {
+    const trimmed = callerOrg.trim().toLowerCase();
+    if (!trimmed) return null;
+    return orgs.find((o) => o.name.toLowerCase() === trimmed) || null;
+  }, [callerOrg, orgs]);
+
+  // Kullanıcı kişi adını yazınca, kuruma ait kayıtlı kişiyse telefonu otomatik doldur.
+  useEffect(() => {
+    if (!matchedOrg || !callerContact.trim()) return;
+    const c = matchedOrg.contacts.find(
+      (x) => x.name.toLowerCase() === callerContact.trim().toLowerCase(),
+    );
+    if (c && c.phone && !callerPhone) {
+      setCallerPhone(c.phone);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matchedOrg, callerContact]);
+
+  /**
+   * Çağrı girişi başarıyla kaydedildikten sonra: girilen kurum/kişi
+   * kayıtlı değilse Müşteri İrtibat Listesi'ne ekle (autocomplete büyür).
+   */
+  async function persistContactIfNew() {
+    const orgName = callerOrg.trim();
+    const contactName = callerContact.trim();
+    const phone = callerPhone.trim() || null;
+    if (!orgName || !contactName) return;
+
+    try {
+      let org = matchedOrg;
+      if (!org) {
+        const r = await api.post<CustomerOrg>('/customers/orgs', {
+          name: orgName,
+          initial_contact: { name: contactName, phone },
+        });
+        org = r.data;
+      } else {
+        const existing = org.contacts.find(
+          (x) => x.name.toLowerCase() === contactName.toLowerCase(),
+        );
+        if (!existing) {
+          await api.post(`/customers/orgs/${org.id}/contacts`, {
+            name: contactName,
+            phone,
+          });
+        }
+      }
+    } catch {
+      /* Autocomplete kaydı best-effort; hata olsa bile giriş zaten kaydedildi */
+    }
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -53,6 +115,15 @@ export default function NewEntry() {
       const n = Number(numericValue);
       if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) {
         setError('Lütfen geçerli bir adet (tam sayı) girin.');
+        return;
+      }
+    } else if (isCallers) {
+      if (!callerOrg.trim()) {
+        setError('Kurum ismini girin.');
+        return;
+      }
+      if (!callerContact.trim()) {
+        setError('İrtibat kişisinin adını girin.');
         return;
       }
     } else if (!body.trim()) {
@@ -67,9 +138,14 @@ export default function NewEntry() {
         title: null,
         body: isNumeric ? '' : body.trim(),
         numeric_value: isNumeric ? Number(numericValue) : null,
-        // occurs_at sadece DDoS Taşıma için kabul edilir; diğer türlerde null.
         occurs_at: allowsOccursAt ? localInputToUtcIso(occursAt) : null,
+        caller_org_name: isCallers ? callerOrg.trim() : null,
+        caller_contact_name: isCallers ? callerContact.trim() : null,
+        caller_contact_phone: isCallers ? (callerPhone.trim() || null) : null,
       });
+      if (isCallers) {
+        await persistContactIfNew();
+      }
       nav('/');
     } catch (err: any) {
       setError(err?.response?.data?.detail || 'Kayıt başarısız oldu');
@@ -96,9 +172,13 @@ export default function NewEntry() {
                 } else {
                   setNumericValue('');
                 }
-                // DDoS dışına geçince planlı zaman alanını da temizle.
                 if (next !== 'ddos_transfer') {
                   setOccursAt('');
+                }
+                if (next !== 'callers') {
+                  setCallerOrg('');
+                  setCallerContact('');
+                  setCallerPhone('');
                 }
               }}
             >
@@ -143,6 +223,75 @@ export default function NewEntry() {
               Bu vardiyada işlem yapılan {ENTRY_TYPE_LABEL[entryType]} case sayısını girin.
             </p>
           </div>
+        ) : isCallers ? (
+          // --- "Arayanlar" özel formu (v0.6.1) ---
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="label">Kurum İsmi *</label>
+                <input
+                  className="input"
+                  list="caller-orgs"
+                  value={callerOrg}
+                  onChange={(e) => setCallerOrg(e.target.value)}
+                  required
+                  placeholder="Garanti BBVA"
+                  autoComplete="off"
+                />
+                <datalist id="caller-orgs">
+                  {orgs.map((o) => (
+                    <option key={o.id} value={o.name} />
+                  ))}
+                </datalist>
+                <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
+                  Listeden seçin ya da yeni kurum adı yazın — yeni isim Müşteri
+                  İrtibat Listesi'ne otomatik kaydedilir.
+                </p>
+              </div>
+              <div>
+                <label className="label">İrtibat Kişisi *</label>
+                <input
+                  className="input"
+                  list="caller-contacts"
+                  value={callerContact}
+                  onChange={(e) => setCallerContact(e.target.value)}
+                  required
+                  placeholder="Ali Yılmaz"
+                  autoComplete="off"
+                />
+                <datalist id="caller-contacts">
+                  {(matchedOrg?.contacts || []).map((c) => (
+                    <option key={c.id} value={c.name} />
+                  ))}
+                </datalist>
+                <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
+                  Kurum seçili ise kayıtlı kişiler önerilir.
+                </p>
+              </div>
+            </div>
+            <div>
+              <label className="label">İrtibat Numarası</label>
+              <input
+                className="input"
+                value={callerPhone}
+                onChange={(e) => setCallerPhone(e.target.value)}
+                placeholder="0532 123 45 67"
+                autoComplete="off"
+              />
+              <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
+                Kayıtlı bir kişi seçtiyseniz numara otomatik doldurulur; gerekirse düzeltin.
+              </p>
+            </div>
+            <div>
+              <label className="label">Notlar (opsiyonel)</label>
+              <textarea
+                className="input min-h-[80px]"
+                value={body}
+                onChange={(e) => setBody(e.target.value)}
+                placeholder="Çağrı hakkında ek bilgi…"
+              />
+            </div>
+          </>
         ) : (
           <div>
             <label className="label">Detay</label>

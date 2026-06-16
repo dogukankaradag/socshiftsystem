@@ -22,7 +22,8 @@ const STATUS_CLASS: Record<IncidentStatus, string> = {
 
 export default function Incidents() {
   const { user } = useAuth();
-  const canDelete = user?.role === 'supervisor' || user?.role === 'admin';
+  // v0.6.2: 2 rollü sistem — hem standard hem super_admin tüm CRUD'ı yapabilir.
+  const canDelete = user?.role === 'standard' || user?.role === 'super_admin';
 
   const [items, setItems] = useState<Incident[]>([]);
   const [filterStatus, setFilterStatus] = useState<IncidentStatus | ''>('');

@@ -9,8 +9,8 @@ from sqlalchemy.orm import Session
 
 from ..auth import require_operator
 from ..database import get_db
-from ..models import Entry, EntryType, Incident, IncidentStatus, NUMERIC_ENTRY_TYPES
-from ..schemas import AnalyticsOverview, TrendPoint, TypeCount, TypeTotal
+from ..models import Entry, EntryType, Incident, IncidentStatus, NUMERIC_ENTRY_TYPES, User
+from ..schemas import AnalyticsOverview, CallerStat, TrendPoint, TypeCount, TypeTotal
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
@@ -93,6 +93,22 @@ def overview(db: Session = Depends(get_db), _=Depends(require_operator)):
             title_counter[title.strip().lower()] += 1
     recurring = [{"title": t, "count": c} for t, c in title_counter.most_common(10) if c >= 2]
 
+    # v0.6.1: "Arayanlar" girişlerinin kullanıcı bazlı 30-günlük dağılımı.
+    # Performans değerlendirmesi için — hangi operatör kaç çağrı aldı.
+    callers_rows = (
+        db.query(User.id, User.full_name, func.count(Entry.id))
+        .join(Entry, Entry.author_id == User.id)
+        .filter(Entry.entry_type == EntryType.callers)
+        .filter(Entry.created_at >= recent_start)
+        .group_by(User.id, User.full_name)
+        .order_by(func.count(Entry.id).desc())
+        .all()
+    )
+    callers_by_user = [
+        CallerStat(user_id=int(uid), user_name=name, count=int(cnt))
+        for uid, name, cnt in callers_rows
+    ]
+
     return AnalyticsOverview(
         total_entries=int(total_entries),
         open_incidents=int(open_incidents),
@@ -102,4 +118,5 @@ def overview(db: Session = Depends(get_db), _=Depends(require_operator)):
         totals_30d=totals_30d,
         top_tags=[],
         recurring_titles=recurring,
+        callers_by_user_30d=callers_by_user,
     )

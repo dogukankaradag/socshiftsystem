@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from . import ai, email_service, report_builder
 from .config import get_settings
 from .models import (
-    AuditLog, Entry, MailingList, Report, ReportStatus, Shift, ShiftType, User,
+    AuditLog, Entry, EntryType, MailingList, Report, ReportStatus, Shift, ShiftType, User,
 )
 
 log = logging.getLogger(__name__)
@@ -115,9 +115,15 @@ def generate_report(db: Session, shift: Shift, generated_by: Optional[User] = No
         .all()
     )
     now_utc = datetime.now(timezone.utc)
+    # "Yaklaşan Planlı İşler" listesi yalnızca **DDoS Taşıma** türü için
+    # üretilir. v0.6.0'dan itibaren occurs_at sadece DDoS Taşıma'da
+    # doldurulabiliyor; bu defansif filtre eski/legacy kayıtlardan başka
+    # türlerin (Arayanlar, Bilgi, vb.) bir sonraki vardiyanın raporuna
+    # sızmasını da kesin olarak engeller.
     upcoming: List[Entry] = (
         db.query(Entry)
         .filter(Entry.shift_id != shift.id)
+        .filter(Entry.entry_type == EntryType.ddos_transfer)
         .filter(Entry.occurs_at.isnot(None))
         .filter(Entry.occurs_at > now_utc)
         .order_by(Entry.occurs_at.asc())

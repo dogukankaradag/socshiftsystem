@@ -72,7 +72,15 @@ def require_roles(*roles: Role):
     return _checker
 
 
-# Convenience dependencies
-require_admin = require_roles(Role.admin)
-require_supervisor = require_roles(Role.supervisor, Role.admin)
-require_operator = require_roles(Role.operator, Role.supervisor, Role.admin)
+# --- v0.6.2: 2 rollü dependency'ler ---
+# Yeni isimler — kod tabanı zamanla bunlara geçer.
+require_authenticated = require_roles(Role.standard, Role.super_admin)
+require_super_admin = require_roles(Role.super_admin)
+
+# Eski isimler (operator / supervisor / admin) geriye dönük uyumluluk için
+# require_authenticated'a alias. Eski require_admin de aynı şekilde —
+# v0.6.2 ile "admin" kavramı standard yetkilerinde eridi. Süper admin'e
+# özel davranış gerektiren yeni endpoint'lerde require_super_admin kullanın.
+require_admin = require_authenticated
+require_supervisor = require_authenticated
+require_operator = require_authenticated

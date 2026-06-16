@@ -4,7 +4,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import or_
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session, joinedload
 
 from ..auth import require_operator
@@ -137,11 +137,23 @@ def create_entry(payload: EntryCreate, db: Session = Depends(get_db),
             raise HTTPException(status_code=400, detail="Shift not found")
 
     # Validation: numeric types require a numeric_value; text types require body.
+    # "Arayanlar" özel durum: body opsiyonel, ama kurum + kişi adı zorunlu.
     if payload.entry_type in NUMERIC_ENTRY_TYPES:
         if payload.numeric_value is None:
             raise HTTPException(
                 status_code=400,
                 detail=f"{payload.entry_type.value} için sayı girişi zorunludur.",
+            )
+    elif payload.entry_type == EntryType.callers:
+        if not (payload.caller_org_name and payload.caller_org_name.strip()):
+            raise HTTPException(
+                status_code=400,
+                detail="Arayanlar girişi için kurum ismi zorunludur.",
+            )
+        if not (payload.caller_contact_name and payload.caller_contact_name.strip()):
+            raise HTTPException(
+                status_code=400,
+                detail="Arayanlar girişi için irtibat kişisi zorunludur.",
             )
     else:
         if not payload.body or not payload.body.strip():
@@ -161,6 +173,10 @@ def create_entry(payload: EntryCreate, db: Session = Depends(get_db),
         numeric_value=payload.numeric_value,
         occurs_at=_ensure_utc(payload.occurs_at),
         incident_id=payload.incident_id,
+        # "Arayanlar" snapshot alanları — sadece type == callers iken anlamlı.
+        caller_org_name=payload.caller_org_name,
+        caller_contact_name=payload.caller_contact_name,
+        caller_contact_phone=payload.caller_contact_phone,
     )
     db.add(entry)
     db.commit()
@@ -263,7 +279,6 @@ def pending_resolution(
     Aktif (henüz kapatılmamış) vardiyanın Bilgi girişleri **dahil edilmez** —
     bunlar henüz devredilmedi, hâlâ aynı operatörün vardiyasında.
     """
-    from ..models import Shift  # circular import'tan kaçınmak için lokal
     now = datetime.now(timezone.utc)
 
     # Aktif (ended_at IS NULL) vardiyaların ID'leri — bunlardaki Bilgi'leri hariç tut.
@@ -271,20 +286,33 @@ def pending_resolution(
         sid for (sid,) in db.query(Shift.id).filter(Shift.ended_at.is_(None)).all()
     ]
 
+    # DDoS Taşıma: zamanı geçmiş planlamalar.
+    ddos_filter = and_(
+        Entry.entry_type == EntryType.ddos_transfer,
+        Entry.occurs_at.isnot(None),
+        Entry.occurs_at < now,
+    )
+
+    # Bilgi: aktif vardiya dışındaki tüm Bilgi girişleri.
+    # active_shift_ids boşsa (henüz hiç vardiya yoksa) tüm Bilgi'ler dahil
+    # edilir. Boş listeyi SQLAlchemy in_() içine geçirmek geçersiz SQL
+    # üretiyordu — bu yüzden if/else ayrımı zorunlu.
+    if active_shift_ids:
+        info_filter = and_(
+            Entry.entry_type == EntryType.info,
+            ~Entry.shift_id.in_(active_shift_ids),
+        )
+    else:
+        info_filter = Entry.entry_type == EntryType.info
+
     rows = (
         db.query(Entry).options(joinedload(Entry.author))
-        .filter(Entry.entry_type.in_(RESOLVABLE_ENTRY_TYPES))
-        .filter(
-            # DDoS: zamanı geçmiş planlamalar
-            ((Entry.entry_type == EntryType.ddos_transfer)
-             & Entry.occurs_at.isnot(None)
-             & (Entry.occurs_at < now))
-            |
-            # Bilgi: aktif vardiya dışındaki tüm Bilgi girişleri
-            ((Entry.entry_type == EntryType.info)
-             & (~Entry.shift_id.in_(active_shift_ids) if active_shift_ids else True))
+        .filter(or_(ddos_filter, info_filter))
+        .order_by(
+            Entry.entry_type.asc(),
+            Entry.occurs_at.asc().nullslast(),
+            Entry.created_at.asc(),
         )
-        .order_by(Entry.entry_type.asc(), Entry.occurs_at.asc().nullslast(), Entry.created_at.asc())
         .all()
     )
     return [_to_out(e) for e in rows]

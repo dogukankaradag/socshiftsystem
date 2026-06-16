@@ -1,4 +1,7 @@
-# Vardiya Devir Sistemi — v0.6.0
+# MSSP Handover — v0.8.12
+
+> Eski adı: *Vardiya Devir Sistemi* (v0.7.3 ve öncesi). v0.8.0 itibarıyla
+> uygulama markası `MSSP Handover` olarak güncellendi.
 
 NOC / operasyon ekipleri için yapılandırılmış vardiya devir ve raporlama
 platformu. Serbest format e-posta devir alışkanlığını; aranabilir,
@@ -110,8 +113,9 @@ başlatırsanız `invalid input value for enum ...` hatası alırsınız.
   "Dağıtıcı Listesi" sayfası (`/distributors`) Nöbetçi Listesi'nin
   yanında menüde yer alır. Ayrıca yeni "Bekleyen Kararlar" akışı:
   `GET /entries/pending-resolution` ve `POST /entries/{id}/resolve`
-  endpoint'leri eklendi; UI tarafında Panel'de banner ve "Rapor oluştur"
-  linkine intercept eklendi. PostgreSQL'de yükseltme:
+  endpoint'leri eklendi; UI tarafında Panel'de banner, Reports sayfasında
+  "Oluştur/Planla/Oluştur & Gönder" butonlarına intercept eklendi.
+  PostgreSQL'de yükseltme:
 
   ```sql
   ALTER TYPE rosterteam ADD VALUE IF NOT EXISTS 'distributor';
@@ -142,6 +146,345 @@ başlatırsanız `invalid input value for enum ...` hatası alırsınız.
   toplar; `POST /entries/{id}/resolve` yeni `action=keep` değerini kabul
   eder (state değiştirmez, sadece audit yazar). Yine sadece
   `docker compose build && docker compose up -d`.
+* v0.6.0 → v0.6.1: **Yeni tablolar — migration gerekir.** Müşteri İrtibat
+  Listesi (Customer Orgs + Contacts) eklendi. Üç şey değişti: (1) `entries`
+  tablosuna 3 yeni opsiyonel kolon: `caller_org_name`, `caller_contact_name`,
+  `caller_contact_phone` (snapshot — irtibat ileride değişse/silinse bile
+  tarihsel rapor bozulmaz). (2) Yeni tablolar `customer_orgs` ve
+  `customer_contacts` (1-N ilişki). (3) `/api/customers/orgs` + alt
+  endpoint'ler (CRUD). "Arayanlar" giriş formu artık 3 ayrı alan
+  gösteriyor (kurum, kişi, numara) ve datalist autocomplete; yeni
+  kurum/kişi otomatik olarak listeye eklenir. Analytics'e "Telefon
+  Çağrıları — Kullanıcı Dağılımı" widget'ı eklendi (son 30 gün, hangi
+  operatör kaç çağrı aldı). Rapor mail body'sinde "Telefon Çağrıları"
+  satırı bullet listede kurum + kişi + numara olarak basılır.
+  **Reports sayfasında** "Oluştur/Planla/Oluştur & Gönder" butonları
+  artık bekleyen karar varsa önce ResolveScheduledModal'ı tetikler.
+
+  PostgreSQL şema oluşturma (`Base.metadata.create_all` ilk açılışta
+  hallediyor); manuel migration için:
+
+  ```sql
+  ALTER TABLE entries ADD COLUMN IF NOT EXISTS caller_org_name VARCHAR(255);
+  ALTER TABLE entries ADD COLUMN IF NOT EXISTS caller_contact_name VARCHAR(255);
+  ALTER TABLE entries ADD COLUMN IF NOT EXISTS caller_contact_phone VARCHAR(64);
+
+  CREATE TABLE IF NOT EXISTS customer_orgs (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) UNIQUE NOT NULL,
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS customer_contacts (
+    id SERIAL PRIMARY KEY,
+    org_id INTEGER REFERENCES customer_orgs(id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL,
+    phone VARCHAR(64),
+    notes VARCHAR(512),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  );
+
+  CREATE INDEX IF NOT EXISTS ix_customer_contact_org_name
+    ON customer_contacts (org_id, name);
+  ```
+
+  SQLite'da otomatik. Yine sadece `docker compose build && docker compose up -d`.
+* v0.6.1 → v0.6.2: **Rol sistemi yeniden tasarımı (otomatik migration).**
+  Üç rol (`operator/supervisor/admin`) tek hamlede ikiye düştü:
+  - **Standart Kullanıcı** (`standard`) — Tüm sistem üzerinde tam yetki:
+    kullanıcı oluşturma/düzenleme, mail listesi yönetimi, rapor oluşturma,
+    giriş ekleme/düzenleme/silme, müşteri irtibat listesi CRUD, vb.
+    Vardiya Listesi'ni **yalnızca okuyabilir** (düzenleme/silme/yükleme
+    butonları görünmez).
+  - **Super Admin** (`super_admin`) — Standart yetkilerinin tümü + Vardiya
+    Listesi (Nöbetçi + Dağıtıcı) **çizelgelerine manuel müdahale** +
+    başka bir kullanıcıyı **Super Admin rolüne yükseltme/indirme** yetkisi.
+
+  **Migration otomatik** çalışır (`backend/app/seed.py:_migrate_roles`):
+  açılışta tüm `operator/supervisor/admin` rolündeki kullanıcılar
+  `standard`'a çevrilir; ardından en az bir `super_admin` yoksa
+  `SEED_ADMIN_EMAIL` ile eşleşen kullanıcı `super_admin`'e yükseltilir.
+  Sistem tek aktif super_admin'in pasifleştirilmesini ve rolünü
+  düşürmesini engeller (orphaned-system koruması).
+
+  PostgreSQL enum'ına yeni değerleri eklemek için manuel SQL gerekirse:
+
+  ```sql
+  ALTER TYPE role ADD VALUE IF NOT EXISTS 'standard';
+  ALTER TYPE role ADD VALUE IF NOT EXISTS 'super_admin';
+  -- Sonra startup'ta migration otomatik çalışır.
+  ```
+
+  SQLite'da bu adım gerekmez. `docker compose build && docker compose up -d`.
+* v0.6.2 → v0.6.3: **Sadece UI değişikliği — migration gerekmez.** Üst
+  menüdeki dropdown başlığı `Vardiya Listesi` olarak yeniden adlandırıldı
+  (eski: `Nöbetçi Listesi`). Dropdown altı üç kalem:
+  - *Nöbetçi Listesi* (L2 + MSSP) — herkes okur, Super Admin düzenler
+  - *Dağıtıcı Listesi* (Aylık Dağıtıcı + Öğlen Nöbetçileri) — aynı yetki
+  - *Aylık Vardiya Listesi* (`/aylik-vardiya`) — **yalnızca Super Admin** —
+    v0.7.0'da otomatik vardiya jeneratörüne bağlanacak placeholder sayfa.
+
+  Standart kullanıcılar yalnızca ilk iki kalemi görür; Aylık Vardiya
+  Listesi menü ve route düzeyinde gizlidir (`ProtectedRoute requireRole`).
+  Yine sadece `docker compose build && docker compose up -d`.
+* v0.6.3 → v0.7.0: **Aylık vardiya otomatik jeneratörü (backend) +
+  yeni tablolar — migration gerekir.**
+
+  Yeni 2 tablo + 3 enum tipi:
+  - `personnel` — personel master (lokasyon İstanbul/Ankara, grup
+    siyah/mavi/kırmızı, on-call mı, sabit A mı)
+  - `monthly_shift_assignment` — personel × gün × slot atamaları
+  - Enum'lar: `personnellocation`, `personnelgroup`, `monthlyshiftslot`
+
+  Yeni endpoint'ler:
+  - `GET /api/personnel` — herkes okur; `POST/PATCH/DELETE` super_admin
+  - `GET /api/monthly-shifts?year=Y&month=M` — herkes okur
+  - `POST /api/monthly-shifts/generate` — super_admin (jeneratör çalıştırır)
+  - `POST/PATCH/DELETE /api/monthly-shifts[/{id}]` — super_admin manuel müdahale
+
+  Startup'ta `_seed_personnel()` çağrısı idempotent: bilinen 17 personeli
+  (Rıdvan, Fatih, Mehmet, Beyza, Kübra, Enes, Duygu, İrfan, Yağız, Sabri,
+  Doğukan, Burak, Talha, Hasan, Furkan, Ülkü, Zehra) seed eder. Aynı isimle
+  kayıt varsa atlanır; super admin sonradan düzenleyebilir.
+
+  Jeneratör rotasyon kuralları (Excel analizinden):
+  - Sabit kadro (Rıdvan, Fatih): her hafta içi sabit A vardiyası
+  - On-call rotasyonu (4 haftalık döngü): Zehra → Yağız → Ülkü → Sabri
+  - Hafta içi B: Duygu + Furkan sabit + 1 rotating
+  - Hafta içi C: 1 rotating
+  - Hafta sonu (Cmt-Paz): A/B/C için 3 farklı rotating kişi
+  - Manuel müdahale (modified_by_user_id) jeneratör tarafından korunur
+
+  PostgreSQL'de manuel migration (opsiyonel — startup zaten oluşturur):
+
+  ```sql
+  -- create_all yeni tabloları oluşturur. Yeni enum'lar otomatik gelir.
+  -- Sadece volume'u silmeden devam edenler için tablo seeding:
+  --   docker compose restart backend  →  log: "Personnel seeded ..."
+  ```
+
+  **Frontend UI** bu sürümde sadece placeholder (`/aylik-vardiya` super_admin'e
+  görünür). Tam takvim arayüzü ve manuel düzenleme UI'ı **v0.7.1**'de gelecek.
+  Backend hazır olduğu için Swagger (`/api/docs`) üzerinden generate'i test
+  edebilirsiniz.
+* v0.7.0 → v0.7.1: **Sadece frontend — migration gerekmez.** Aylık Vardiya
+  Listesi sayfası artık placeholder değil; gerçek takvim arayüzüyle geliyor:
+  - **Üst bar:** Yıl + Ay seçici, "Otomatik Üret", "Sıfırla & Üret" (manuel
+    kayıtlar dahil her şeyi siler), "Personel Yönet" modal, "CSV İndir"
+  - **Grid:** satırlar personel, sütunlar ayın günleri (hafta sonu mavi).
+    Hücreler slot kısaltmasıyla renk kodlu (A, B, C, OC, İZ, Off, A*).
+    Manuel müdahale yapılmış hücrenin sağ üstünde kırmızı `●` işareti.
+  - **Hücre tıklama → Düzenleme Modal** (yalnızca Super Admin): slot
+    seç + not yaz, kaydı manuel-lock'la. Bir sonraki "Otomatik Üret"
+    çağrısı bu hücreyi korur (`modified_by_user_id` IS NOT NULL).
+  - **Personel Yönet Modal:** yeni personel ekle (ad, lokasyon, grup,
+    on-call only / sabit A bayrakları), mevcut personeli aktif/pasif et.
+    Atama varsa silme yerine soft delete (is_active=False).
+  - **CSV indirme** her kullanıcı için açık; raporu Excel'de aç, filtrele,
+    yazdır. UTF-8 BOM ile Türkçe karakterler bozulmaz.
+  - **Renk legend'i** sayfanın altında — yeni kullanıcıya kısayolları öğretir.
+
+  Sayfa yine sadece Super Admin'e açık (`ProtectedRoute requireRole`).
+  Backend endpoint'leri değişmedi; sadece UI eklendi. Yine sadece
+  `docker compose build && docker compose up -d`.
+* v0.7.1 → v0.7.2: **Sadece UI değişikliği — migration gerekmez.**
+  Aylık Vardiya Listesi artık **her giriş yapan kullanıcıya görünür**
+  (read-only). Düzenleme yetkisi yine yalnızca Super Admin'de:
+  - Standart kullanıcı: takvimi okuyabilir, CSV indirebilir, ay/yıl
+    değiştirebilir. "Otomatik Üret", "Sıfırla & Üret", "Personel Yönet"
+    butonları gizli; hücreye tıklayıp düzenleyemez.
+  - Super Admin: tüm yetkiler eskisi gibi.
+
+  Menü filtresinden `superAdminOnly` flag'i kalktı; route'tan
+  `ProtectedRoute requireRole={['super_admin']}` gardı çıktı. Backend
+  endpoint'leri zaten doğru korumalıydı (`GET` için
+  `require_authenticated`, yazma için `require_super_admin`); değişiklik
+  yok. Sadece `docker compose build frontend && docker compose up -d frontend`.
+* v0.7.2 → v0.7.3: **Sadece backend — jeneratör algoritması revize edildi.**
+  Kullanıcı tarif ettiği iş kurallarına göre `monthly_shift_generator.py`
+  baştan yazıldı:
+
+  - **Hafta içi B/C 1. personel rotasyonu** (9 kişilik döngü):
+    Talha → Doğukan → İrfan → Burak → Enes → Kübra → Hasan → Mehmet → Beyza.
+    Sıra her hafta 1 ileri kayar; bir kişi 1 hafta B-1st, sonraki hafta
+    C-1st olarak çalışır. Sıraya geri dönüş ~9 haftada bir.
+  - **B vardiyası 2. personel**: Furkan ve Duygu. Biri Pzt-Sa (2 gün
+    ardışık), diğeri Çr-Cu (3 gün ardışık); haftalık parite ile
+    "kim 2g, kim 3g" alternate. B'ye girmediği günlerde A vardiyasında.
+  - **C vardiyası**: Bu hafta C-1st = geçen haftanın B-1st'i (otomatik).
+  - **On-call** (4 haftalık döngü, Ank↔İst alternate):
+    Zehra → Yağız → Ülkü → Sabri.
+  - **Sabit A kadrosu** (Rıdvan, Fatih): her hafta içi a_fixed, hafta sonu yok.
+  - **Hafta sonu (Cmt-Paz)**: A/B/C için 3 farklı kişi her gün; B/C-1st
+    ve Furkan/Duygu hafta sonu off (çünkü hafta içi 5 günleri dolu).
+  - **Max 5 gün/hafta** garantili tüm rollerde:
+    - B/C-1st: 5 hafta içi → hafta sonu off
+    - Furkan/Duygu: 5 gün (B + A karması) → hafta sonu off
+    - Normal worker: 4 hafta içi A + 1 hafta sonu
+  - **%20 hafta sonu off**: her 5 haftada 1 worker hafta sonu izinli sayılır
+    (hafta sonu rotasyon havuzundan o hafta atlanır).
+  - **Manuel müdahale koruması**: `modified_by_user_id IS NOT NULL` olan
+    her atama, jeneratörden korunur (önceki davranışla aynı).
+
+  Eksik personel uyarıları artık `warnings` array'inde döner — örn.
+  Rıdvan/Fatih yoksa, "Personnel master'da bulunamayan rotasyon isimleri"
+  uyarısı verilir. Mevcut Personnel master eskiden seed'lendi; yine de
+  Personel Yönet'ten elle ekleme/aktivasyon yapılabilir.
+
+  Sadece `docker compose build backend && docker compose up -d backend`.
+* v0.7.3 → v0.8.0: **Marka değişikliği + kalibrasyon + UI iyileştirme.**
+  Migration gerekmez.
+  - **App adı yeniden adlandırıldı**: *Vardiya Devir Sistemi* → **MSSP Handover**
+    (`config.app_name`, Layout header, Login, README, footer hepsinde).
+  - **Jeneratör kalibrasyonu**: rotasyon anchor sabit tarihe taşındı —
+    `ROTATION_ANCHOR_MONDAY = 2026-06-01` (Talha B-1st). Önceki yıllar
+    negatif modulo ile doğru hesaplanır. Bu sayede her ay/yıl için
+    deterministic + öngörülebilir çizelge.
+  - **Furkan/Duygu B-2nd split düzeltildi**: Pzt-Çr (3 gün ardışık) +
+    Pe-Cu (2 gün ardışık). Önceden Pzt-Sa(2)+Çr-Cu(3) yanlıştı.
+    Haftalık parite ile alternate.
+  - **'OC' → 'ON'** kısaltma (`SLOT_SHORT.oncall = 'ON'`).
+  - **İzinli (`leave`) hücreleri** belirgin kırmızı arka plan + kalın
+    border (`border-2 border-red-600`) + bold font. Hızlı göze çarpsın.
+  - **Aylık Vardiya tablosu**: `text-xs` → `text-sm`, padding `py-1`→`py-2`,
+    `px-1`→`px-2`, header'lar `font-bold`, gün numarası `text-base`,
+    min-width `34px`→`44px` (hücreler daha okunaklı).
+  - **Nöbetçi/Dağıtıcı Listesi tablosu**: `text-sm` → `text-base`,
+    header'lar `text-sm uppercase font-bold` + gri arka plan.
+
+  Sadece `docker compose build && docker compose up -d`.
+* v0.8.0 → v0.8.1: **Dağıtıcı Listesi otomasyonu + Nöbetçi Listesi sade.**
+  Yeni tablo eklendi (`daily_duty`) → `create_all` otomatik oluşturur.
+
+  **Dağıtıcı Listesi (`/distributors`)** tamamen yenilendi:
+  - Eski mantık (XLSX/PDF yükleme + manuel satır + iki tab) kaldırıldı
+  - Yeni mantık: Aylık Vardiya'dan veri çekerek otomatik üretim
+  - Her hafta içi gün için 1 Aylık Dağıtıcı + 1 Öğlen Nöbetçi
+  - Eligible: o gün A vardiyasında olan kişiler (Rıdvan/Fatih hariç,
+    on-call only ve sabit A hariç)
+  - Greedy fair distribution: her aktif personele ayda **≥2 dağıtıcı +
+    ≥2 öğlen** hedefli
+  - <2 hedefe ulaşamamış kişiler kırmızı vurguyla "Kişi Bazlı Atama
+    Özeti" panelinde gösterilir
+  - Manuel müdahale koruması (`modified_by_user_id IS NOT NULL`)
+  - Standart kullanıcı: read-only + CSV indir; Super Admin: Otomatik
+    Üret + Sıfırla & Üret + hücreye tıklayarak manuel düzenleme
+
+  **Nöbetçi Listesi (`/roster`)** sadeleşti:
+  - Yalnızca **L2 ekibi** kaldı (MSSP, distributor, lunch tab'ları bu
+    sayfadan kalktı; MSSP artık Aylık Vardiya'da otomasyonlu)
+  - Backend `RosterTeam` enum'ı korundu — eski veriler bozulmaz; sadece
+    UI filtrelemesi değişti
+
+  **Yeni endpoint'ler:**
+  - `GET /api/daily-duty?year=Y&month=M` — herkes okur
+  - `POST /api/daily-duty/generate` — super_admin (jeneratör)
+  - `POST /api/daily-duty` — super_admin (manuel ekle)
+  - `PATCH/DELETE /api/daily-duty/{id}` — super_admin
+
+  Sadece `docker compose build && docker compose up -d`.
+* v0.8.1 → v0.8.2: **Dağıtıcı/öğlen havuzu genişletildi.** Migration gerekmez.
+  On-call only kişiler (Sabri, Yağız, Ülkü, Zehra) artık dağıtıcı + öğlen
+  nöbet havuzuna dahil. v0.8.1'de hatayla `is_oncall_only=True` ve
+  `is_fixed_a=True` olanlar SQL filter'da hariç tutuluyordu — bu mantık
+  yanlıştı.
+
+  Yeni eligibility kuralı (`daily_duty_generator.py`):
+  - Personnel havuzu = aktif + Rıdvan/Fatih hariç (sadece bu 2 isim)
+  - Günlük blocking: kişi o gün **B/C/on-call/leave/off** slot'larından
+    birinde ise eligible değil. A vardiyalı veya Aylık Vardiya'da hiç
+    kaydı olmayan (örn. on-call kişinin diğer haftalarındaki günü)
+    kişiler eligible.
+
+  Sonuç: on-call kişiler kendi on-call haftası dışındaki tüm hafta içi
+  günlerinde dağıtıcı/öğlen alabilir. Greedy round-robin sayesinde adil
+  dağıtım otomatik. Sadece `docker compose build backend && docker compose up -d backend`.
+* v0.8.2 → v0.8.3: **2 kişi/slot + öğlen aynı lokasyon kuralı.** PG için
+  otomatik index migration var (startup'ta).
+
+  Eskiden gün başına **1 dağıtıcı + 1 öğlen** atanıyordu. Şimdi:
+  - **2 dağıtıcı** (lokasyon kısıtsız, karışık olabilir)
+  - **2 öğlen nöbetçi** (her ikisi de aynı lokasyondan: Ank-Ank veya İst-İst)
+  - Toplam 4 farklı kişi/gün (aynı kişi aynı günde iki rol almaz)
+
+  Schema değişikliği:
+  - `daily_duty` tablosunda eski `(day, duty_type)` unique index'i kaldırıldı
+  - Yeni index: `(day, duty_type, personnel_id)` unique (duplicate kişi engellenir)
+  - PG için `_migrate_daily_duty_index()` startup'ta eski index'i DROP eder
+
+  Jeneratör (`daily_duty_generator.py`) yeniden yazıldı:
+  - **Dağıtıcı**: greedy round-robin ile 2 farklı kişi (counts düşük olanlar)
+  - **Öğlen**: önce 1. kişiyi pick et, sonra **aynı lokasyondan** 2. kişiyi pick et.
+    Aynı lokasyonda 2. kişi yoksa, diğer lokasyondan iki kişiyle dene.
+    Olmazsa tek kişi atanır + uyarı.
+  - Aynı kişi aynı günde hem dağıtıcı hem öğlen alamaz (assigned_today set'i).
+  - Manuel müdahale korunur; 1 manuel + 1 otomatik karması destekli.
+
+  Frontend (`Distributors.tsx`):
+  - Hücreler 2 kişiyi alt alta gösterir
+  - 1 kişi atanmışsa "— 2. kişi atanmadı —" uyarısı
+  - Edit modal **2 seat dropdown'ı** + her birine ayrı not alanı
+  - Lokasyon uyarısı (öğlen için): farklı lokasyon seçildiyse amber uyarı
+  - CSV: "Dağıtıcı 1, Dağıtıcı 2, Öğlen 1, Öğlen 2" 4 sütun
+  - Aynı kişi 2 seat'e atama denemesi engellenir (frontend + backend)
+
+  Yeni POST validation:
+  - Aynı (day, duty_type) için max 2 atama (409 dönüyor 3.'de)
+  - Aynı kişi aynı (day, duty_type) için tek kez atanır (409 duplicate'te)
+
+  Sadece `docker compose build && docker compose up -d`.
+* v0.8.3 → v0.8.4: **Cuma öğlen kuralı eklendi.** Migration gerekmez.
+  - Pzt-Per: önceki gibi 2 dağıtıcı + 2 öğlen (öğlen aynı lokasyon)
+  - **Cuma**: 2 dağıtıcı + yalnızca **1 öğlen nöbetçi**
+  - Cuma öğleninde kişi mutlaka **Yağız / Sabri / Ülkü / Zehra** havuzundan
+    seçilir (`FRIDAY_LUNCH_POOL` sabiti). Bu kişiler aynı zamanda diğer
+    günlerin öğlen ve dağıtıcı havuzuna da dahil olmaya devam eder.
+  - Frontend: Cuma öğlen hücresinde "2. kişi atanmadı" uyarısı çıkmaz.
+    Edit modal'da Cuma öğlen seçildiğinde sadece 1 seat görünür + bilgi notu.
+
+  Sadece `docker compose build && docker compose up -d`.
+* v0.8.4 → v0.8.5: **Rapor mail body düzeni — her giriş türü kendi
+  başlığı altında.** Migration gerekmez (sadece backend template).
+
+  Eskiden Bilgi (info) girişleri "L2'ye eskale edilen önemli olay/konu"
+  satırının altında kırmızı+kalın olarak gösteriliyordu. Bu yapı bozuldu;
+  yeni mantık:
+  - **Bilgi** ve **L2'ye Eskale Edilen Konu** ayrı satırlar
+  - **Tüm tür satırları conditional** — ilgili giriş yoksa o satır
+    rapora hiç eklenmez (boş başlık çıkmaz)
+  - **MSSP Talepler** satırı (İYS/DHS/SM) her zaman görünür (rapor şablon
+    standardı; rakamlar 0/boş olabilir)
+
+  Yeni satır sırası (giriş varsa):
+  1. MSSP Talepler (her zaman)
+  2. Telefon ile gelen Müşteri Çağrıları (callers varsa)
+  3. Yapılan Önemli İşler/Olaylar (important_work varsa)
+  4. DDoS Taşıma (ddos_transfer varsa)
+  5. **Bilgi** (info varsa) — kırmızı + kalın
+  6. **L2'ye Eskale Edilen Konu** (l2_escalation varsa)
+  7. Yaklaşan Planlı İşler (upcoming varsa)
+
+  Sadece `docker compose build backend && docker compose up -d backend`.
+* v0.8.5 → v0.8.6: **B rotasyon sırası + WFH slot + empty state.**
+  PG için enum migration otomatik (startup).
+
+  - **B vardiyası 1. personel rotasyonu güncellendi**:
+    eski: Talha → Doğukan → İrfan → Burak → Enes → Kübra → Hasan → Mehmet → Beyza
+    yeni: **Talha → İrfan → Doğukan → Enes → Burak → Kübra → Hasan → Mehmet → Beyza**
+    (pozisyon 2-3 ve 4-5 yer değiştirdi). Anchor 1 Haz 2026 = Talha.
+  - **Yeni slot türü: `wfh` (EV — Evden Çalışma)**
+    - Sembol kılavuzunda mor/lila ile italic gösterilir
+    - Edit modal'da seçilebilir 9 slot içinde
+    - Jeneratör otomatik üretmez (sadece super admin manuel atayabilir)
+  - **Empty state**: Aylık Vardiya'da henüz çizelge oluşturulmadıysa
+    tablo yerine bilgi mesajı: "*Otomatik Üret butonuna basın*".
+  - PG enum migration: startup'ta `ALTER TYPE monthlyshiftslot ADD VALUE
+    IF NOT EXISTS 'wfh'`.
+
+  Sadece `docker compose build && docker compose up -d`.
 
 Bu yüzden eski volume'u temizlemek gerekir:
 

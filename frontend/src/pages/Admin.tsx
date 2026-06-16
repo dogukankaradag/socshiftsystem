@@ -2,7 +2,10 @@ import { FormEvent, useEffect, useState } from 'react';
 import { api, ROLE_LABEL, Role, ShiftType, SHIFT_TYPE_LABEL, User } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 
-const ROLES: Role[] = ['operator', 'supervisor', 'admin'];
+// v0.6.2: 2 rollü sistem. super_admin opsiyonu sadece super_admin
+// kullanıcılara gösterilir; standart kullanıcı super_admin oluşturamaz.
+const ALL_ROLES: Role[] = ['standard', 'super_admin'];
+const STANDARD_ONLY_ROLES: Role[] = ['standard'];
 
 interface MailingList {
   id: number;
@@ -103,15 +106,30 @@ function UsersTab({ users, reload }: { users: User[]; reload: () => void }) {
                     className="input py-1 text-xs"
                     value={u.role}
                     onChange={async (e) => {
-                      await api.patch(`/users/${u.id}`, { role: e.target.value });
-                      reload();
+                      try {
+                        await api.patch(`/users/${u.id}`, { role: e.target.value });
+                        reload();
+                      } catch (err: any) {
+                        alert(err?.response?.data?.detail || 'Rol değiştirilemedi');
+                        reload();
+                      }
                     }}
                   >
-                    {ROLES.map((r) => (
+                    {/* Standart kullanıcı super_admin atayamaz; super_admin
+                        kullanıcı her iki rolü de atayabilir. */}
+                    {(me?.role === 'super_admin' ? ALL_ROLES : STANDARD_ONLY_ROLES).map((r) => (
                       <option key={r} value={r}>
                         {ROLE_LABEL[r]}
                       </option>
                     ))}
+                    {/* Eğer mevcut kullanıcı super_admin ise ve current me
+                        super_admin değilse, dropdown opsiyonu eksik olmasın
+                        diye o değeri ayrıca göster. */}
+                    {me?.role !== 'super_admin' && u.role === 'super_admin' && (
+                      <option value="super_admin" disabled>
+                        {ROLE_LABEL.super_admin} (sadece Super Admin değiştirebilir)
+                      </option>
+                    )}
                   </select>
                 </td>
                 <td className="px-4 py-2">
@@ -164,10 +182,12 @@ function UsersTab({ users, reload }: { users: User[]; reload: () => void }) {
 }
 
 function NewUserForm({ onDone }: { onDone: () => void }) {
+  const { user: me } = useAuth();
+  const availableRoles = me?.role === 'super_admin' ? ALL_ROLES : STANDARD_ONLY_ROLES;
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [pw, setPw] = useState('');
-  const [role, setRole] = useState<Role>('operator');
+  const [role, setRole] = useState<Role>('standard');
   const [error, setError] = useState<string | null>(null);
 
   async function submit(e: FormEvent) {
@@ -206,7 +226,7 @@ function NewUserForm({ onDone }: { onDone: () => void }) {
         required
       />
       <select className="input" value={role} onChange={(e) => setRole(e.target.value as Role)}>
-        {ROLES.map((r) => (
+        {availableRoles.map((r) => (
           <option key={r} value={r}>
             {ROLE_LABEL[r]}
           </option>
@@ -234,6 +254,8 @@ function UserEditModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const { user: me } = useAuth();
+  const availableRoles = me?.role === 'super_admin' ? ALL_ROLES : STANDARD_ONLY_ROLES;
   const [name, setName] = useState(user.full_name);
   const [role, setRole] = useState<Role>(user.role);
   const [pw, setPw] = useState('');
@@ -297,13 +319,26 @@ function UserEditModal({
             className="input"
             value={role}
             onChange={(e) => setRole(e.target.value as Role)}
+            disabled={user.role === 'super_admin' && me?.role !== 'super_admin'}
           >
-            {ROLES.map((r) => (
+            {availableRoles.map((r) => (
               <option key={r} value={r}>
                 {ROLE_LABEL[r]}
               </option>
             ))}
+            {/* Bu kullanıcı super_admin ama mevcut me super_admin değilse,
+                rolü disabled-select olarak göster ki kaybolmasın. */}
+            {user.role === 'super_admin' && me?.role !== 'super_admin' && (
+              <option value="super_admin" disabled>
+                {ROLE_LABEL.super_admin}
+              </option>
+            )}
           </select>
+          {me?.role !== 'super_admin' && (
+            <p className="text-xs text-gray-500 mt-1">
+              Super Admin atama yetkisi yalnızca Super Admin kullanıcılarındadır.
+            </p>
+          )}
         </div>
         <div>
           <label className="label">Yeni Parola (boş bırakırsanız değişmez)</label>
