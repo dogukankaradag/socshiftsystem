@@ -85,6 +85,9 @@ class EntryBase(BaseModel):
     caller_org_name: Optional[str] = Field(default=None, max_length=255)
     caller_contact_name: Optional[str] = Field(default=None, max_length=255)
     caller_contact_phone: Optional[str] = Field(default=None, max_length=64)
+    # --- "DDoS Taşıma" için MPLS ekibi + otomatik hatırlatma (v0.8.14) ---
+    mpls_team_id: Optional[int] = None
+    mpls_reminder_enabled: Optional[bool] = False
 
 
 class EntryCreate(EntryBase):
@@ -100,6 +103,8 @@ class EntryUpdate(BaseModel):
     caller_org_name: Optional[str] = Field(default=None, max_length=255)
     caller_contact_name: Optional[str] = Field(default=None, max_length=255)
     caller_contact_phone: Optional[str] = Field(default=None, max_length=64)
+    mpls_team_id: Optional[int] = None
+    mpls_reminder_enabled: Optional[bool] = None
 
 
 class EntryOut(EntryBase):
@@ -471,6 +476,32 @@ class GenerateDailyDutyResult(BaseModel):
     per_person_distributor: dict[str, int] = {}  # personel_adı → atanan dağıtıcı sayısı
     per_person_lunch: dict[str, int] = {}
     warnings: List[str] = []
+
+
+# --- v0.8.14: MPLS Ekipleri --------------------------------------------------
+class MplsTeamCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    email: EmailStr
+    notes: Optional[str] = Field(default=None, max_length=512)
+    is_active: bool = True
+
+
+class MplsTeamUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=128)
+    email: Optional[EmailStr] = None
+    notes: Optional[str] = Field(default=None, max_length=512)
+    is_active: Optional[bool] = None
+
+
+class MplsTeamOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    email: str
+    notes: Optional[str]
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
 
 
 # Forward-ref resolution

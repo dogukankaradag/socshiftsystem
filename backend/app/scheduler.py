@@ -117,14 +117,51 @@ async def reminder_tick():
         log.info("reminder_tick: %d upcoming entries in next %d min",
                  len(rows), settings.reminder_lead_minutes)
 
+        # v0.8.14: MplsTeam import — DDoS Taşıma hatırlatmasında kullanılır
+        from .models import MplsTeam
+
         for e in rows:
+            # v0.8.14: MPLS ekibine hatırlatma (DDoS Taşıma için özel akış)
+            if e.mpls_reminder_enabled and e.mpls_team_id:
+                mpls = db.query(MplsTeam).filter(MplsTeam.id == e.mpls_team_id).first()
+                if not mpls or not mpls.email:
+                    log.warning(
+                        "Entry %s: MPLS team %s not found or has no email; "
+                        "skipping MPLS reminder", e.id, e.mpls_team_id,
+                    )
+                    continue
+                # Konu = kullanıcı input'u (devre no veya müşteri adı).
+                # Sabit gövde: "İlgili taşıma işlemi için hatırlatma mailidir."
+                mpls_subject = (e.body or e.title or "DDoS Taşıma").strip()[:255]
+                mpls_body_text = "İlgili taşıma işlemi için hatırlatma mailidir."
+                mpls_body_html = (
+                    "<div style='font-family:system-ui,sans-serif;line-height:1.5'>"
+                    "<p>İlgili taşıma işlemi için hatırlatma mailidir.</p>"
+                    "<p style='color:#9ca3af;font-size:12px;margin-top:16px'>"
+                    "MSSP Handover tarafından otomatik gönderilmiştir.</p>"
+                    "</div>"
+                )
+                try:
+                    await email_service.send_email(
+                        to=[mpls.email], subject=mpls_subject,
+                        text_body=mpls_body_text, html_body=mpls_body_html,
+                    )
+                    e.reminder_sent_at = datetime.now(timezone.utc)
+                    db.commit()
+                    log.info(
+                        "MPLS reminder sent to %s (team=%s) for entry %s",
+                        mpls.email, mpls.name, e.id,
+                    )
+                except Exception:  # noqa: BLE001
+                    log.exception("MPLS reminder send failed for entry %s", e.id)
+                    db.rollback()
+                continue  # bu entry için MPLS hatırlatma yapıldı, shift'e gitme
+
+            # Varsayılan akış: vardiya mail listesine hatırlatma
             shift = db.query(Shift).filter(Shift.id == e.shift_id).first()
             to_list, _cc = resolve_recipients(db, shift) if shift else ([], [])
             if not to_list:
                 log.warning("Skipping reminder for entry %s: no TO recipients", e.id)
-                # İstersek yine de işaretleyelim ki sürekli loglamayalım; ama
-                # operatör mailing list eksikse farkında olsun diye
-                # reminder_sent_at boş bırakıyoruz.
                 continue
 
             occurs_local = e.occurs_at.astimezone(tz).strftime("%d.%m.%Y %H:%M")
@@ -141,7 +178,7 @@ async def reminder_tick():
                 f"Tür: {tur}\n"
                 f"Zaman: {occurs_local} (GMT+3) — yaklaşık {minutes_remaining} dk içinde\n\n"
                 f"Detay:\n{detay}\n\n"
-                f"— Vardiya Devir Sistemi\n"
+                f"— MSSP Handover\n"
             )
             html = (
                 f"<div style='font-family:system-ui,sans-serif;line-height:1.5'>"
@@ -153,7 +190,7 @@ async def reminder_tick():
                 f"<div style='padding:10px;border:1px solid #e5e7eb;"
                 f"border-radius:6px;background:#fef3c7;white-space:pre-wrap'>{detay}</div>"
                 f"<p style='color:#9ca3af;font-size:12px;margin-top:16px'>"
-                f"Vardiya Devir Sistemi tarafından otomatik gönderilmiştir.</p>"
+                f"MSSP Handover tarafından otomatik gönderilmiştir.</p>"
                 f"</div>"
             )
             try:
@@ -189,16 +226,11 @@ async def imap_poll_tick():
 def start_scheduler():
     if scheduler.running:
         return
-    # 1) cron-based shift handover auto-dispatch
-    try:
-        trigger = CronTrigger.from_crontab(
-            settings.report_dispatch_cron,
-            timezone=settings.scheduler_timezone,
-        )
-        scheduler.add_job(auto_dispatch_job, trigger, id="auto_dispatch", replace_existing=True)
-    except Exception as exc:  # noqa: BLE001
-        log.error("Invalid REPORT_DISPATCH_CRON %r: %s — cron job disabled",
-                  settings.report_dispatch_cron, exc)
+    # v0.8.14: 1) Vardiya devir raporu OTOMATIK gönderimi kaldırıldı.
+    # Kullanıcı yalnızca "Oluştur & Gönder" veya "Planla" butonuyla
+    # manuel tetiklendiğinde rapor gönderilir. Eski cron job (REPORT_DISPATCH_CRON)
+    # artık çağırılmıyor. Kullanıcının planladığı raporlar aşağıdaki
+    # scheduled_reports_tick tarafından yine dispatch edilir.
 
     # 2) minute tick for per-report scheduled dispatch
     scheduler.add_job(
@@ -227,8 +259,8 @@ def start_scheduler():
 
     scheduler.start()
     log.info(
-        "Scheduler started (cron=%r, tz=%s, per-report=30s, reminder=%ss, imap=%s)",
-        settings.report_dispatch_cron, settings.scheduler_timezone,
+        "Scheduler started (auto_dispatch=DISABLED, tz=%s, per-report=30s, reminder=%ss, imap=%s)",
+        settings.scheduler_timezone,
         settings.reminder_tick_seconds,
         f"{settings.imap_poll_seconds}s" if settings.imap_host else "disabled",
     )

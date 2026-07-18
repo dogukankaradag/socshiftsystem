@@ -5,8 +5,9 @@ import { useAuth } from '../auth/AuthContext';
 export default function Login() {
   const { user, login, loading } = useAuth();
   const nav = useNavigate();
-  const [email, setEmail] = useState('admin@example.com');
-  const [password, setPassword] = useState('admin123');
+  // v0.8.13: Otomatik doldurulan örnek değerler kaldırıldı — boş başlayacak.
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -41,6 +42,8 @@ export default function Login() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
+            autoComplete="off"
+            placeholder="ornek@sirket.com"
           />
         </div>
         <div>
@@ -51,15 +54,14 @@ export default function Login() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
+            autoComplete="new-password"
+            placeholder="••••••••"
           />
         </div>
         {error && <div className="text-sm text-red-600 dark:text-red-400">{error}</div>}
         <button type="submit" disabled={submitting} className="btn-primary w-full">
           {submitting ? 'Giriş yapılıyor…' : 'Giriş Yap'}
         </button>
-        <p className="text-xs text-gray-400 dark:text-slate-500 text-center">
-          Varsayılan: admin@example.com / admin123 — üretimde mutlaka değiştirin.
-        </p>
       </form>
     </div>
   );

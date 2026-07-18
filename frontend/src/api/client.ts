@@ -141,6 +141,20 @@ export interface Entry {
   caller_org_name: string | null;
   caller_contact_name: string | null;
   caller_contact_phone: string | null;
+  // v0.8.14: "DDoS Taşıma" MPLS ekibi + otomatik hatırlatma
+  mpls_team_id: number | null;
+  mpls_reminder_enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// v0.8.14: MPLS Ekipleri (DDoS Taşıma girişinde seçilir)
+export interface MplsTeam {
+  id: number;
+  name: string;
+  email: string;
+  notes: string | null;
+  is_active: boolean;
   created_at: string;
   updated_at: string;
 }

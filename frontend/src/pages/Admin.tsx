@@ -1,5 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { api, ROLE_LABEL, Role, ShiftType, SHIFT_TYPE_LABEL, User } from '../api/client';
+import {
+  api, MplsTeam, ROLE_LABEL, Role, ShiftType, SHIFT_TYPE_LABEL, User,
+} from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 
 // v0.6.2: 2 rollü sistem. super_admin opsiyonu sadece super_admin
@@ -19,22 +21,34 @@ interface MailingList {
 export default function Admin() {
   const [users, setUsers] = useState<User[]>([]);
   const [lists, setLists] = useState<MailingList[]>([]);
-  const [tab, setTab] = useState<'users' | 'mailing'>('users');
+  const [mplsTeams, setMplsTeams] = useState<MplsTeam[]>([]);
+  const [tab, setTab] = useState<'users' | 'mailing' | 'mpls'>('users');
 
   async function load() {
-    const [u, m] = await Promise.all([api.get('/users'), api.get('/mailing-lists')]);
+    const [u, m, p] = await Promise.all([
+      api.get('/users'),
+      api.get('/mailing-lists'),
+      api.get('/mpls-teams', { params: { only_active: false } }),
+    ]);
     setUsers(u.data);
     setLists(m.data);
+    setMplsTeams(p.data);
   }
   useEffect(() => {
     load();
   }, []);
 
+  const TAB_LABEL: Record<'users' | 'mailing' | 'mpls', string> = {
+    users: 'Kullanıcılar',
+    mailing: 'Mail Listeleri',
+    mpls: 'MPLS Ekipleri',
+  };
+
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold">Yönetim</h1>
       <div className="flex gap-2 border-b border-gray-200">
-        {(['users', 'mailing'] as const).map((t) => (
+        {(['users', 'mailing', 'mpls'] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -42,15 +56,249 @@ export default function Admin() {
               tab === t ? 'text-brand-700 border-b-2 border-brand-700' : 'text-gray-500'
             }`}
           >
-            {t === 'users' ? 'Kullanıcılar' : 'Mail Listeleri'}
+            {TAB_LABEL[t]}
           </button>
         ))}
       </div>
       {tab === 'users' ? (
         <UsersTab users={users} reload={load} />
-      ) : (
+      ) : tab === 'mailing' ? (
         <MailingTab lists={lists} reload={load} />
+      ) : (
+        <MplsTab teams={mplsTeams} reload={load} />
       )}
+    </div>
+  );
+}
+
+
+function MplsTab({ teams, reload }: { teams: MplsTeam[]; reload: () => void }) {
+  const { user: me } = useAuth();
+  const canDelete = me?.role === 'super_admin';
+  const [showNew, setShowNew] = useState(false);
+  const [editing, setEditing] = useState<MplsTeam | null>(null);
+
+  async function remove(t: MplsTeam) {
+    if (!confirm(
+      `"${t.name}" MPLS ekibi silinecek. Bu ekibi referans veren DDoS Taşıma ` +
+      `girişleri varsa ekip pasifleştirilir (soft-delete). Onaylıyor musunuz?`,
+    )) return;
+    try {
+      await api.delete(`/mpls-teams/${t.id}`);
+      reload();
+    } catch (e: any) {
+      alert(e?.response?.data?.detail || 'Silme başarısız');
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex justify-between items-start">
+        <p className="text-sm text-gray-500 dark:text-slate-400 max-w-2xl">
+          DDoS Taşıma girişlerinde "Otomatik hatırlatma" seçildiğinde, taşıma
+          zamanına 30 dk kala bu listeden seçilen MPLS ekibinin mail adresine
+          hatırlatma gönderilir. Mail konusu: giriş içeriği (devre no / müşteri
+          adı). İçerik: "İlgili taşıma işlemi için hatırlatma mailidir."
+        </p>
+        <button className="btn-primary shrink-0" onClick={() => setShowNew(true)}>
+          + Yeni MPLS Ekibi
+        </button>
+      </div>
+      {showNew && (
+        <NewMplsTeamForm onDone={() => { setShowNew(false); reload(); }} />
+      )}
+      <div className="card p-0 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500">
+            <tr>
+              <th className="px-4 py-2">#</th>
+              <th className="px-4 py-2">Ad</th>
+              <th className="px-4 py-2">E-posta</th>
+              <th className="px-4 py-2">Not</th>
+              <th className="px-4 py-2">Durum</th>
+              <th className="px-4 py-2"></th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {teams.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="px-4 py-6 text-center text-gray-500">
+                  Henüz MPLS ekibi eklenmedi.
+                </td>
+              </tr>
+            ) : teams.map((t) => (
+              <tr key={t.id} className={t.is_active ? '' : 'opacity-60'}>
+                <td className="px-4 py-2 text-gray-500">#{t.id}</td>
+                <td className="px-4 py-2 font-medium">{t.name}</td>
+                <td className="px-4 py-2 text-gray-700">{t.email}</td>
+                <td className="px-4 py-2 text-gray-500 text-xs">{t.notes || '—'}</td>
+                <td className="px-4 py-2">
+                  <span className={`pill ${t.is_active
+                    ? 'bg-green-100 text-green-800'
+                    : 'bg-gray-200 text-gray-700'}`}>
+                    {t.is_active ? 'Aktif' : 'Pasif'}
+                  </span>
+                </td>
+                <td className="px-4 py-2 text-right whitespace-nowrap space-x-2">
+                  <button
+                    className="text-xs text-brand-700 hover:underline"
+                    onClick={() => setEditing(t)}
+                  >
+                    Düzenle
+                  </button>
+                  {canDelete && (
+                    <button
+                      className="text-xs text-red-600 hover:underline"
+                      onClick={() => remove(t)}
+                    >
+                      Sil
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {editing && (
+        <MplsTeamEditModal
+          team={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); reload(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+
+function NewMplsTeamForm({ onDone }: { onDone: () => void }) {
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setErr(null);
+    setSaving(true);
+    try {
+      await api.post('/mpls-teams', {
+        name: name.trim(),
+        email: email.trim(),
+        notes: notes.trim() || null,
+        is_active: true,
+      });
+      onDone();
+    } catch (e: any) {
+      setErr(e?.response?.data?.detail || 'Ekleme başarısız');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="card grid grid-cols-1 md:grid-cols-3 gap-3">
+      <input
+        className="input"
+        placeholder="MPLS Ekip Adı (örn. MPLS-1)"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        required
+      />
+      <input
+        className="input"
+        placeholder="E-posta"
+        type="email"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        required
+      />
+      <input
+        className="input"
+        placeholder="Not (opsiyonel)"
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+      />
+      {err && <div className="col-span-3 text-sm text-red-600">{err}</div>}
+      <div className="col-span-3 flex justify-end gap-2">
+        <button type="button" className="btn-ghost" onClick={onDone}>İptal</button>
+        <button type="submit" className="btn-primary" disabled={saving}>
+          {saving ? 'Ekleniyor…' : 'Ekle'}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+
+function MplsTeamEditModal({
+  team, onClose, onSaved,
+}: {
+  team: MplsTeam;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(team.name);
+  const [email, setEmail] = useState(team.email);
+  const [notes, setNotes] = useState(team.notes || '');
+  const [active, setActive] = useState(team.is_active);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setErr(null);
+    setSaving(true);
+    try {
+      await api.patch(`/mpls-teams/${team.id}`, {
+        name: name.trim(),
+        email: email.trim(),
+        notes: notes.trim() || null,
+        is_active: active,
+      });
+      onSaved();
+    } catch (e: any) {
+      setErr(e?.response?.data?.detail || 'Güncelleme başarısız');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <form onSubmit={submit} className="bg-white dark:bg-slate-800 rounded-lg shadow-xl w-full max-w-md p-5 space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold text-gray-900 dark:text-slate-100">
+            MPLS Ekibini Düzenle
+          </h2>
+          <button type="button" className="text-gray-500" onClick={onClose}>✕</button>
+        </div>
+        <div>
+          <label className="label">Ad</label>
+          <input className="input" value={name} onChange={(e) => setName(e.target.value)} required />
+        </div>
+        <div>
+          <label className="label">E-posta</label>
+          <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+        </div>
+        <div>
+          <label className="label">Not (opsiyonel)</label>
+          <input className="input" value={notes} onChange={(e) => setNotes(e.target.value)} />
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
+          Aktif
+        </label>
+        {err && <div className="text-sm text-red-600">{err}</div>}
+        <div className="flex justify-end gap-2 pt-1">
+          <button type="button" className="btn-ghost" onClick={onClose}>İptal</button>
+          <button type="submit" className="btn-primary" disabled={saving}>
+            {saving ? 'Kaydediliyor…' : 'Kaydet'}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

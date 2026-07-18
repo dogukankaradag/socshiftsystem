@@ -66,11 +66,12 @@ from .models import (
 
 # Hafta içi B/C 1. personel rotasyonu. Her hafta listenin bir kişisi B'ye girer;
 # o kişi bir sonraki hafta C'ye geçer (2 hafta vardiya, sonra dinlenir).
-# v0.8.6: kullanıcı tarifine göre sıralama güncellendi (Doğukan↔İrfan,
-# Burak↔Enes yer değiştirdi). Anchor 1 Haz 2026 = Talha (pozisyon 0).
+# v0.8.13: Hasan ve Burak pozisyon yer değiştirdi (5↔7). Yeni sıra:
+# Talha → İrfan → Doğukan → Enes → Hasan → Kübra → Burak → Mehmet → Beyza.
+# Anchor 1 Haz 2026 = Talha (pozisyon 0).
 WEEKDAY_ROTATION_NAMES: list[str] = [
-    "Talha", "İrfan", "Doğukan", "Enes", "Burak",
-    "Kübra", "Hasan", "Mehmet", "Beyza",
+    "Talha", "İrfan", "Doğukan", "Enes", "Hasan",
+    "Kübra", "Burak", "Mehmet", "Beyza",
 ]
 
 # B vardiyasında 2. personel — Furkan ve Duygu, ardışık günleri böler.

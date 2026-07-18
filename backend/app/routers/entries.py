@@ -177,6 +177,9 @@ def create_entry(payload: EntryCreate, db: Session = Depends(get_db),
         caller_org_name=payload.caller_org_name,
         caller_contact_name=payload.caller_contact_name,
         caller_contact_phone=payload.caller_contact_phone,
+        # "DDoS Taşıma" MPLS ekibi + otomatik hatırlatma (v0.8.14)
+        mpls_team_id=payload.mpls_team_id,
+        mpls_reminder_enabled=bool(payload.mpls_reminder_enabled),
     )
     db.add(entry)
     db.commit()

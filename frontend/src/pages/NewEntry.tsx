@@ -5,6 +5,7 @@ import {
   CustomerOrg,
   ENTRY_TYPE_LABEL,
   EntryType,
+  MplsTeam,
   NUMERIC_ENTRY_TYPES,
 } from '../api/client';
 
@@ -42,6 +43,11 @@ export default function NewEntry() {
   const [callerPhone, setCallerPhone] = useState('');
   const [orgs, setOrgs] = useState<CustomerOrg[]>([]);
 
+  // "DDoS Taşıma" MPLS ekibi + otomatik hatırlatma (v0.8.14)
+  const [mplsReminder, setMplsReminder] = useState(false);
+  const [mplsTeamId, setMplsTeamId] = useState<number | ''>('');
+  const [mplsTeams, setMplsTeams] = useState<MplsTeam[]>([]);
+
   const isNumeric = NUMERIC_ENTRY_TYPES.includes(entryType);
   const isCallers = entryType === 'callers';
   // "Planlanan zaman" alanı yalnızca DDoS Taşıma için açık.
@@ -52,6 +58,13 @@ export default function NewEntry() {
     api.get<CustomerOrg[]>('/customers/orgs')
       .then((r) => setOrgs(r.data))
       .catch(() => {/* sessizce yut — autocomplete olmaması formu bozmamalı */});
+  }, []);
+
+  // v0.8.14: MPLS ekipleri dropdown için
+  useEffect(() => {
+    api.get<MplsTeam[]>('/mpls-teams', { params: { only_active: true } })
+      .then((r) => setMplsTeams(r.data))
+      .catch(() => {/* sessizce yut */});
   }, []);
 
   // Seçili (veya tip eşleşen) kurumun irtibatları — kişi datalist için.
@@ -142,6 +155,10 @@ export default function NewEntry() {
         caller_org_name: isCallers ? callerOrg.trim() : null,
         caller_contact_name: isCallers ? callerContact.trim() : null,
         caller_contact_phone: isCallers ? (callerPhone.trim() || null) : null,
+        // v0.8.14: DDoS Taşıma MPLS ekibi + otomatik hatırlatma
+        mpls_team_id: allowsOccursAt && mplsReminder && mplsTeamId
+          ? Number(mplsTeamId) : null,
+        mpls_reminder_enabled: allowsOccursAt && mplsReminder && !!mplsTeamId,
       });
       if (isCallers) {
         await persistContactIfNew();
@@ -205,6 +222,54 @@ export default function NewEntry() {
             </div>
           )}
         </div>
+
+        {/* v0.8.14: DDoS Taşıma için MPLS ekibi + otomatik hatırlatma */}
+        {allowsOccursAt && (
+          <div className="border-t border-gray-200 dark:border-slate-700 pt-3 space-y-2">
+            <label className="flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={mplsReminder}
+                onChange={(e) => setMplsReminder(e.target.checked)}
+              />
+              <span>
+                <b>Otomatik olarak hatırlatma maili iletilsin</b>
+                <span className="text-xs text-gray-500 dark:text-slate-400 block">
+                  Taşıma tarihine 30 dk kala aşağıda seçilen MPLS ekibinin
+                  mail adresine hatırlatma gönderilir. Mail konusu bu formda
+                  gireceğiniz devre no/müşteri adı olacaktır.
+                </span>
+              </span>
+            </label>
+            {mplsReminder && (
+              <div className="ml-6">
+                <label className="label">MPLS Ekibi *</label>
+                <select
+                  className="input"
+                  value={mplsTeamId}
+                  onChange={(e) =>
+                    setMplsTeamId(e.target.value === '' ? '' : Number(e.target.value))
+                  }
+                  required
+                >
+                  <option value="">— Seçin —</option>
+                  {mplsTeams.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name} ({t.email})
+                    </option>
+                  ))}
+                </select>
+                {mplsTeams.length === 0 && (
+                  <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
+                    Sistemde MPLS ekibi tanımlı değil. Önce
+                    <b> Yönetim → MPLS Ekipleri</b>'nden ekip ekleyin.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {isNumeric ? (
           <div>

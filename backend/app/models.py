@@ -158,6 +158,12 @@ class Entry(Base):
     caller_org_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     caller_contact_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     caller_contact_phone: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    # --- "DDoS Taşıma" için MPLS ekibi + otomatik hatırlatma (v0.8.14) ---
+    # mpls_team_id set + mpls_reminder_enabled True ise, occurs_at'a 30 dk
+    # kala MPLS ekibinin mail adresine hatırlatma otomatik gönderilir.
+    # Diğer entry türlerinde bu alanlar null/false.
+    mpls_team_id: Mapped[Optional[int]] = mapped_column(ForeignKey("mpls_teams.id"), nullable=True)
+    mpls_reminder_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -407,6 +413,24 @@ class MonthlyShiftSlot(str, enum.Enum):
     leave = "leave"
     off = "off"
     wfh = "wfh"
+
+
+# --- v0.8.14: MPLS Ekipleri --------------------------------------------------
+# DDoS Taşıma girişleri için taşımayı gerçekleştirecek MPLS ekibinin
+# tanımlandığı master tablo. Kullanıcı yeni giriş oluştururken bu listeden
+# seçim yapar; "otomatik hatırlatma" işaretlerse taşıma zamanına 30 dk kala
+# ekibin mail adresine hatırlatma gider.
+
+class MplsTeam(Base):
+    __tablename__ = "mpls_teams"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    email: Mapped[str] = mapped_column(String(255))
+    notes: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
 class DailyDutyType(str, enum.Enum):

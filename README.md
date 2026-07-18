@@ -1,4 +1,4 @@
-# MSSP Handover — v0.8.12
+# MSSP Handover — v0.8.14
 
 > Eski adı: *Vardiya Devir Sistemi* (v0.7.3 ve öncesi). v0.8.0 itibarıyla
 > uygulama markası `MSSP Handover` olarak güncellendi.

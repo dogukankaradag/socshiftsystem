@@ -105,6 +105,31 @@ def _migrate_monthly_shift_slot_enum(db: Session) -> None:
         log.exception("monthlyshiftslot enum migration failed (continuing)")
 
 
+def _migrate_entry_mpls_columns(db: Session) -> None:
+    """v0.8.14: entries tablosuna mpls_team_id + mpls_reminder_enabled kolonları
+    ekle. create_all yeni tablolar için sorun değil ama mevcut tabloya kolon
+    ekleyemez → PG'de manuel ALTER TABLE gerekir. SQLite'da atlanır."""
+    dialect = engine.dialect.name
+    if dialect != "postgresql":
+        return
+    try:
+        with engine.connect() as conn:
+            conn = conn.execution_options(isolation_level="AUTOCOMMIT")
+            conn.execute(text(
+                "ALTER TABLE entries "
+                "ADD COLUMN IF NOT EXISTS mpls_team_id INTEGER "
+                "REFERENCES mpls_teams(id)"
+            ))
+            conn.execute(text(
+                "ALTER TABLE entries "
+                "ADD COLUMN IF NOT EXISTS mpls_reminder_enabled BOOLEAN "
+                "DEFAULT FALSE NOT NULL"
+            ))
+        log.info("entries.mpls_team_id + mpls_reminder_enabled columns added (if missing).")
+    except Exception:
+        log.exception("entries MPLS columns migration failed (continuing)")
+
+
 def seed_defaults(db: Session) -> None:
     # Önce mevcut rolleri migrate et.
     _migrate_roles(db)
@@ -112,6 +137,8 @@ def seed_defaults(db: Session) -> None:
     _migrate_daily_duty_index(db)
     # v0.8.6: monthlyshiftslot enum'una 'wfh' ekle
     _migrate_monthly_shift_slot_enum(db)
+    # v0.8.14: entries.mpls_team_id + mpls_reminder_enabled kolonları
+    _migrate_entry_mpls_columns(db)
 
     admin = db.query(User).filter(User.email == settings.seed_admin_email).first()
     if not admin:

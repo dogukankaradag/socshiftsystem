@@ -10,7 +10,7 @@ from .config import get_settings
 from .database import Base, SessionLocal, engine
 from .routers import (
     analytics, auth, customers, daily_duty, entries, incidents, mailing, monthly_shifts,
-    reports, roster, shifts, users,
+    mpls_teams, reports, roster, shifts, users,
 )
 from .scheduler import start_scheduler, stop_scheduler
 from .seed import seed_defaults
@@ -75,3 +75,4 @@ app.include_router(customers.router, prefix=prefix)
 app.include_router(monthly_shifts.router, prefix=prefix)
 app.include_router(monthly_shifts.personnel_router, prefix=prefix)
 app.include_router(daily_duty.router, prefix=prefix)
+app.include_router(mpls_teams.router, prefix=prefix)
