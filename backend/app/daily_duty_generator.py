@@ -380,24 +380,19 @@ def generate_month(
         ]
 
         if is_friday:
-            # Cuma: 1 kişi, FRIDAY_LUNCH_POOL ∩ target_loc
+            # v0.8.15: Cuma → 1 kişi, FRIDAY_LUNCH_POOL'un tamamından (lokasyon
+            # bağımsız). Böylece Yağız/Sabri (İst) ve Ülkü/Zehra (Ank) hepsi
+            # ~4 haftada 1 kez rotasyona girer. target_loc kısıtı kaldırıldı.
             if lunch_existing == 0:
                 special_eligible = [
-                    pid for pid in lunch_eligible_loc
+                    pid for pid in lunch_eligible  # loc filtresi YOK
                     if name_by_id[pid] in FRIDAY_LUNCH_POOL
                 ]
-                # Special pool ve target_loc uyuşmuyorsa (örn. tüm Ank özel
-                # pool kişileri kullanılmış), pool'u esnet — sadece pool kalsın
-                if not special_eligible:
-                    special_eligible = [
-                        pid for pid in lunch_eligible
-                        if name_by_id[pid] in FRIDAY_LUNCH_POOL
-                    ]
                 if not special_eligible:
                     result.warnings.append(
                         f"{day} (Cuma): öğlen için {sorted(FRIDAY_LUNCH_POOL)} "
                         "havuzundan eligible kişi yok (bu hafta zaten kullanılmış "
-                        "veya hepsi on-call/leave)."
+                        "veya hepsi B/C/leave)."
                     )
                 else:
                     chosen = _pick_lowest(special_eligible, counts_lunch, name_by_id)
@@ -411,24 +406,21 @@ def generate_month(
                         used_this_week.add(chosen)
             # lunch_existing >= 1: zaten dolu
         else:
-            # Pzt-Per: 2 kişi, target_loc'tan, haftada tekrarsız.
-            # v0.8.11: Special pool (Yağız/Sabri/Ülkü/Zehra) Mon-Thu lunch'a
-            # dahil edilmez — sadece Cuma için ayrılmıştır.
+            # v0.8.15: Pzt-Per → 2 kişi, target_loc'tan, haftada tekrarsız.
+            # Special pool (Yağız/Sabri/Ülkü/Zehra) DAHİL edilir — daha önce
+            # v0.8.11'de hariç tutuluyordu ama bu Yağız/Sabri'nin ay boyunca
+            # 0 lunch almasına yol açıyordu. Şimdi tüm eligible kişiler havuzda.
             if lunch_existing == 0:
-                lunch_eligible_loc_regular = [
-                    pid for pid in lunch_eligible_loc
-                    if name_by_id[pid] not in FRIDAY_LUNCH_POOL
-                ]
-                if len(lunch_eligible_loc_regular) < 2:
+                if len(lunch_eligible_loc) < 2:
                     result.warnings.append(
                         f"{day}: öğlen için {target_loc_str.title()} "
-                        f"regular havuzunda yeterli (≥2) eligible kişi yok "
-                        f"(bulunan: {len(lunch_eligible_loc_regular)}). "
+                        f"havuzunda yeterli (≥2) eligible kişi yok "
+                        f"(bulunan: {len(lunch_eligible_loc)}). "
                         "Bu hafta zaten kullanılmış olabilir."
                     )
                 # En az atama almış 2 kişi
                 picked: list[int] = []
-                remaining = list(lunch_eligible_loc_regular)
+                remaining = list(lunch_eligible_loc)
                 for _ in range(2):
                     if not remaining:
                         break
