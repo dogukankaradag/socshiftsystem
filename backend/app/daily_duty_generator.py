@@ -1,22 +1,20 @@
-"""Dağıtıcı + Öğlen Nöbetçi günlük atama jeneratörü (v0.8.3).
+"""Dağıtıcı + Öğlen Nöbetçi günlük atama jeneratörü.
 
-Kullanıcı tarifindeki kurallar:
+İş kuralları (yapılandırma ile parametrize):
 
   - Sadece hafta içi (Pzt-Cu) günler — hafta sonu atama yok.
-  - Aylık Vardiya verileriyle entegre: bir kişi o gün B/C/on-call/leave/off
-    slot'larında DEĞİLSE havuza dahil.
-  - **Sadece Rıdvan ve Fatih hariç** — kalan TÜM aktif personel havuzda
-    (Sabri/Yağız/Ülkü/Zehra dahil — on-call olmadıkları günlerde).
-  - Gün başına **2 Dağıtıcı + 2 Öğlen Nöbet** = toplam 4 farklı kişi.
-  - Dağıtıcı: lokasyon kısıtsız (Ankara veya İstanbul, karışık olabilir).
-  - **Öğlen: 2 kişi aynı lokasyondan** (Ank-Ank veya İst-İst).
-  - Hedef: her aktif personele ay başına ≥2 dağıtıcı + ≥2 öğlen.
+  - Aylık Vardiya verileriyle entegre: bir kişi o gün B/C/leave/off slot'larında
+    DEĞİLSE havuza dahil. On-call PASİF (standby) — aynı gün dist/öğlen olabilir.
+  - `excluded_from_daily_duty` config listesindeki kişiler havuza girmez.
+  - Gün başına 2 Dağıtıcı + 2 Öğlen Nöbet = 4 farklı kişi.
+  - Dağıtıcı: 1 İstanbul + 1 Ankara. Öğlen (Pzt-Per): 2 kişi aynı lokasyondan.
+  - Cuma öğlen: 1 kişi, `friday_lunch_pool` config listesinden.
+  - Kişi başı hedef ay içinde ≥2 dağıtıcı + ≥2 öğlen; haftada max 1 dist +
+    1 öğlen (no-repeat-week).
+  - Öğlen çift kısıtı: aynı gün iki on-call-only Ankara personeli
+    eşleşemez (yük dengeleme).
   - Algoritma: greedy round-robin — en az atama almış kişiyi öncelikle seç.
-  - Manuel müdahale (`modified_by_user_id IS NOT NULL`) korunur.
-
-Bir gün için 4 atama: 2 dağıtıcı + 2 öğlen. Aynı kişi aynı gün × görev türü
-içinde tekrar atanamaz (unique index). Aynı kişi aynı gün hem dağıtıcı hem
-öğlen olabilir mi? Hayır — adalet için aynı günde her kişi tek rol alır.
+  - Manuel müdahale (modified_by_user_id NOT NULL) korunur.
 """
 from __future__ import annotations
 from calendar import monthrange
@@ -29,16 +27,12 @@ from .models import (
     DailyDuty, DailyDutyType, MonthlyShiftAssignment, MonthlyShiftSlot,
     Personnel, PersonnelLocation,
 )
+from .personnel_config import get_personnel_config
 
 
-# Bu kişiler dağıtıcı / öğlen nöbetine girmez (kullanıcı kararı).
-EXCLUDED_NAMES: set[str] = {"Rıdvan", "Fatih"}
-
-# v0.8.11: O gün bir kişiyi dağıtıcı/öğlen yapmaktan ALIKOYAN slot'lar.
-# On-call PASİF (standby) bir durum — aktif olarak çağırılana kadar çalışır.
-# Bu nedenle on-call kişiler aynı gün dist/öğlen alabilir (kullanıcı veri
-# örneklerinde Yağız ve Zehra'nın on-call rotasyonu üyeleriyken dist
-# yaptığını gösterdi).
+# O gün bir kişiyi dağıtıcı/öğlen yapmaktan ALIKOYAN slot'lar.
+# On-call PASİF (standby) durum — aktif olarak çağırılana kadar çalışır;
+# bu nedenle on-call kişiler aynı gün dist/öğlen alabilir.
 BLOCKING_SLOTS = {
     MonthlyShiftSlot.b_shift,
     MonthlyShiftSlot.c_shift,
@@ -46,32 +40,35 @@ BLOCKING_SLOTS = {
     MonthlyShiftSlot.off,
 }
 
-# v0.8.4: Cuma günleri öğlen nöbeti için ÖZEL havuz — sadece bu kişilerden
-# biri seçilebilir. Geri kalan günlerde (Pzt-Per) normal havuz kullanılır.
-FRIDAY_LUNCH_POOL: set[str] = {"Yağız", "Sabri", "Ülkü", "Zehra"}
+
+def _excluded_names() -> set[str]:
+    return set(get_personnel_config().excluded_from_daily_duty)
 
 
-# v0.8.10: Haftalık öğlen lokasyon kalıbı — kullanıcı tarifine göre:
-#   "Hafta içi 3 gün Ankara, 2 gün İstanbul; sonraki hafta tersi 2/3"
-#
-# Anchor: ROTATION_ANCHOR_MONDAY (2026-06-01, Pzt). Bu pazartesiyi haftanın
-# 0. günü kabul ediyoruz. 8 Haziran haftası (week_idx 1, tek hafta) "3 Ank +
-# 2 İst" olacak (kullanıcının doğrudan verdiği örnek).
-#
-#   Çift hafta (week_idx 0, 2, ...): 2 Ank + 3 İst → Pzt İst, Sa Ank, Çr İst,
-#                                                   Pe Ank, Cu İst
-#   Tek hafta  (week_idx 1, 3, ...): 3 Ank + 2 İst → Pzt Ank, Sa İst, Çr Ank,
-#                                                   Pe İst, Cu Ank
-#
-# Cuma lokasyonu Friday-special-pool'dan kim seçileceğini de belirler
-# (Ank → Ülkü/Zehra, İst → Yağız/Sabri).
+def _friday_lunch_pool() -> set[str]:
+    return set(get_personnel_config().friday_lunch_pool)
+
+
+# Öğlen çifti yasak kuralı — isim değil nitelik bazlı:
+#   is_oncall_only=True olan iki Ankara personeli aynı gün öğlen olamaz.
+# Yük dengeleme amacıyla o güne ait 2. kişi Ankara'nın diğer (vardiyaya giren)
+# personelinden seçilir. Yeni kurallar için bu fonksiyona OR ile eklenir.
+
+
+def _pair_allowed(p_a: Personnel, p_b: Personnel) -> bool:
+    """İki kişinin aynı gün öğlen çiftinde birlikte olması mümkün mü?"""
+    if p_a.location != p_b.location:
+        return True
+    if p_a.location != PersonnelLocation.ankara:
+        return True
+    if p_a.is_oncall_only and p_b.is_oncall_only:
+        return False
+    return True
+
+
+# Haftalık öğlen lokasyon kalıbı — her hafta 3 Ank + 2 İst (alternation Mon-Thu,
+# Fri her zaman Ank). Çift/tek hafta desenleri config anchor'dan hesaplanır.
 from .monthly_shift_generator import ROTATION_ANCHOR_MONDAY
-
-# v0.8.11: Kullanıcı verisinden çıkardığım gerçek pattern:
-#   Her hafta 3 Ank + 2 İst (alternation Mon-Thu, Fri her zaman Ank).
-#   - Çift hafta (1-5 Haz): Mon İst, Tue Ank, Wed İst, Thu Ank, Fri Ank
-#   - Tek hafta  (8-12 Haz): Mon Ank, Tue İst, Wed Ank, Thu İst, Fri Ank
-# Cuma her zaman Ank (Ülkü veya Zehra special pool'dan).
 WEEKDAY_LUNCH_LOC_EVEN: dict[int, str] = {
     0: "istanbul", 1: "ankara", 2: "istanbul", 3: "ankara", 4: "ankara",
 }
@@ -209,11 +206,11 @@ def generate_month(
         )
     db.commit()
 
-    # 2) Aktif eligible personel havuzu (Rıdvan/Fatih hariç).
+    # 2) Aktif eligible personel havuzu (excluded_from_daily_duty listesi hariç).
     personnel = (
         db.query(Personnel)
         .filter(Personnel.is_active.is_(True))
-        .filter(~Personnel.full_name.in_(EXCLUDED_NAMES))
+        .filter(~Personnel.full_name.in_(_excluded_names()))
         .order_by(Personnel.full_name.asc())
         .all()
     )
@@ -223,6 +220,9 @@ def generate_month(
 
     name_by_id = {p.id: p.full_name for p in personnel}
     loc_by_id = {p.id: p.location for p in personnel}
+    # v0.8.19: Personnel objelerinin id-index'i — _pair_allowed niteliklere
+    # (location, is_oncall_only) baktığı için tam objeye erişim gerekiyor.
+    person_by_id: dict[int, Personnel] = {p.id: p for p in personnel}
 
     # 3) Aylık Vardiya'dan blocking slot'larını çek.
     msa_rows = (
@@ -352,12 +352,13 @@ def generate_month(
                     "(bu hafta hepsi kullanılmış veya hepsi B/C/izinli)."
                 )
 
-        # --- ÖĞLEN (v0.8.10 algoritması) ---
-        # Yeni 3 kural:
-        #   (1) Cuma: 1 kişi (FRIDAY_LUNCH_POOL ∩ haftaya düşen lokasyon)
+        # --- ÖĞLEN ---
+        # Kurallar:
+        #   (1) Cuma: 1 kişi (friday_lunch_pool config listesinden)
         #   (2) Pzt-Per: 2 kişi (haftaya düşen günlük lokasyon)
         #   (3) Bir kişi haftada sadece 1 kez öğlen olabilir (no-repeat-week)
-        #   Mevcut: aynı kişi aynı gün dağıtıcı + öğlen olamaz (assigned_today)
+        #   (4) Aynı kişi aynı gün hem dağıtıcı hem öğlen olamaz
+        #   (5) Ankara + on-call-only çift kısıtı (_pair_allowed)
         is_friday = day.weekday() == 4
         lunch_slot = (day, DailyDutyType.lunch)
         lunch_existing = manual_count_by_slot.get(lunch_slot, 0)
@@ -380,17 +381,17 @@ def generate_month(
         ]
 
         if is_friday:
-            # v0.8.15: Cuma → 1 kişi, FRIDAY_LUNCH_POOL'un tamamından (lokasyon
-            # bağımsız). Böylece Yağız/Sabri (İst) ve Ülkü/Zehra (Ank) hepsi
-            # ~4 haftada 1 kez rotasyona girer. target_loc kısıtı kaldırıldı.
+            # Cuma → 1 kişi, friday_lunch_pool tamamından (lokasyon bağımsız).
+            # Havuz ~4 haftada 1 kez rotasyona girer.
             if lunch_existing == 0:
+                friday_pool = _friday_lunch_pool()
                 special_eligible = [
-                    pid for pid in lunch_eligible  # loc filtresi YOK
-                    if name_by_id[pid] in FRIDAY_LUNCH_POOL
+                    pid for pid in lunch_eligible
+                    if name_by_id[pid] in friday_pool
                 ]
                 if not special_eligible:
                     result.warnings.append(
-                        f"{day} (Cuma): öğlen için {sorted(FRIDAY_LUNCH_POOL)} "
+                        f"{day} (Cuma): öğlen için friday_lunch_pool "
                         "havuzundan eligible kişi yok (bu hafta zaten kullanılmış "
                         "veya hepsi B/C/leave)."
                     )
@@ -407,9 +408,8 @@ def generate_month(
             # lunch_existing >= 1: zaten dolu
         else:
             # v0.8.15: Pzt-Per → 2 kişi, target_loc'tan, haftada tekrarsız.
-            # Special pool (Yağız/Sabri/Ülkü/Zehra) DAHİL edilir — daha önce
-            # v0.8.11'de hariç tutuluyordu ama bu Yağız/Sabri'nin ay boyunca
-            # 0 lunch almasına yol açıyordu. Şimdi tüm eligible kişiler havuzda.
+            # friday_lunch_pool üyeleri de havuza DAHİL — böylece hepsi
+            # ay boyunca adilce rotasyona girer.
             if lunch_existing == 0:
                 if len(lunch_eligible_loc) < 2:
                     result.warnings.append(
@@ -418,13 +418,30 @@ def generate_month(
                         f"(bulunan: {len(lunch_eligible_loc)}). "
                         "Bu hafta zaten kullanılmış olabilir."
                     )
-                # En az atama almış 2 kişi
+                # En az atama almış 2 kişi (v0.8.19: yasak çift kısıtıyla)
                 picked: list[int] = []
                 remaining = list(lunch_eligible_loc)
                 for _ in range(2):
                     if not remaining:
                         break
-                    chosen = _pick_lowest(remaining, counts_lunch, name_by_id)
+                    # Daha önce seçilen kişi(ler)le pair kuralı (_pair_allowed)
+                    # ihlali yapmayan adayları filtrele.
+                    eligible_now = [
+                        pid for pid in remaining
+                        if all(
+                            _pair_allowed(person_by_id[pid], person_by_id[p])
+                            for p in picked
+                        )
+                    ]
+                    if not eligible_now:
+                        if picked:
+                            result.warnings.append(
+                                f"{day}: öğlen 2. kişi için yasak çift kısıtı "
+                                "(Ankara + on-call-only özelliği eşleşmesi) "
+                                "nedeniyle havuzda aday kalmadı."
+                            )
+                        break
+                    chosen = _pick_lowest(eligible_now, counts_lunch, name_by_id)
                     if chosen is None:
                         break
                     picked.append(chosen)
@@ -446,8 +463,18 @@ def generate_month(
                     existing_loc = loc_by_id.get(existing_lunch.personnel_id)
                     target_loc_val = (existing_loc.value if existing_loc
                                        else target_loc_str)
-                    pool = [pid for pid in lunch_eligible
-                            if loc_by_id[pid].value == target_loc_val]
+                    # v0.8.19: mevcut manuel kişiyle LUNCH_FORBIDDEN_PAIRS
+                    # ihlali yapan adayları filtrele.
+                    pool = [
+                        pid for pid in lunch_eligible
+                        if loc_by_id[pid].value == target_loc_val
+                        and pid in person_by_id
+                        and existing_lunch.personnel_id in person_by_id
+                        and _pair_allowed(
+                            person_by_id[pid],
+                            person_by_id[existing_lunch.personnel_id],
+                        )
+                    ]
                     if pool:
                         chosen = _pick_lowest(pool, counts_lunch, name_by_id)
                         if chosen:

@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 
 from . import ai, email_service, report_builder
 from .config import get_settings
+from sqlalchemy import or_
+
 from .models import (
     AuditLog, Entry, EntryType, MailingList, Report, ReportStatus, Shift, ShiftType, User,
 )
@@ -108,9 +110,17 @@ def generate_report(db: Session, shift: Shift, generated_by: Optional[User] = No
     3 gün sonra için girilen bir plan, araya giren her vardiya raporuna
     otomatik olarak taşınır ve operatöre hatırlatılır.
     """
+    # v0.8.16: "Arayanlar" (callers) rapor sonrası tek-seferlik — bir daha
+    # dahil edilmesin. reported_at NULL olanlar rapora girer; dispatch
+    # sonrası bu shift'in tüm callers'ları işaretlenir. Diğer türler her
+    # zaman dahil (reported_at ile ilgilenmez).
     entries: List[Entry] = (
         db.query(Entry)
         .filter(Entry.shift_id == shift.id)
+        .filter(or_(
+            Entry.entry_type != EntryType.callers,
+            Entry.reported_at.is_(None),
+        ))
         .order_by(Entry.created_at.asc())
         .all()
     )
@@ -181,6 +191,23 @@ async def dispatch_report(db: Session, report: Report,
         report.error_message = None
         audit(db, actor, "report.dispatched", "report", report.id,
               {"to": to_recipients, "cc": cc_recipients})
+        # v0.8.16: bu vardiyadaki henüz raporlanmamış tüm "Arayanlar"
+        # girişlerini işaretle → bir sonraki generate'de rapora dahil olmaz.
+        marked = (
+            db.query(Entry)
+            .filter(Entry.shift_id == report.shift_id)
+            .filter(Entry.entry_type == EntryType.callers)
+            .filter(Entry.reported_at.is_(None))
+            .update(
+                {Entry.reported_at: report.dispatched_at},
+                synchronize_session=False,
+            )
+        )
+        if marked:
+            log.info(
+                "Marked %d callers entries as reported for shift %s (report %s)",
+                marked, report.shift_id, report.id,
+            )
     except Exception as exc:  # noqa: BLE001
         log.exception("Dispatch failed for report %s", report.id)
         report.status = ReportStatus.failed

@@ -21,6 +21,10 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    volumes:
+      # v0.9.0: Personnel/rotasyon config — host'ta gitignored,
+      # sadece container içine read-only mount edilir.
+      - ./config:/app/config:ro
     environment:
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-shift}:${POSTGRES_PASSWORD:-shift}@db:5432/${POSTGRES_DB:-shift}
       JWT_SECRET: ${JWT_SECRET:-please-change-me-to-a-long-random-string}

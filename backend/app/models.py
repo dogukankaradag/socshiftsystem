@@ -164,6 +164,13 @@ class Entry(Base):
     # Diğer entry türlerinde bu alanlar null/false.
     mpls_team_id: Mapped[Optional[int]] = mapped_column(ForeignKey("mpls_teams.id"), nullable=True)
     mpls_reminder_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    # v0.8.16: "Arayanlar" için rapora dahil edilme takibi. Rapor dispatched
+    # olduğunda o vardiyaya ait tüm callers girişleri reported_at ile
+    # işaretlenir; bir sonraki generate bunları rapora eklemez (tek-seferlik).
+    # Diğer türler bu alanı NULL bırakır.
+    reported_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -329,22 +336,19 @@ class CustomerContact(Base):
     )
 
 
-# --- v0.7.0: Aylık vardiya jeneratörü -----------------------------------------
-# Excel'den çıkardığım rotasyon analizi:
+# --- Aylık vardiya jeneratörü ------------------------------------------------
+# Rotasyon analizi (config'ten okunur):
 #
-#   - Sabit kadro (her zaman aynı): Rıdvan, Fatih → her hafta içi C kolonu
-#     (sabit A vardiyası, İstanbul, siyah font)
-#   - İstanbul (mavi font) — vardiyaya girer: Mehmet, Beyza, Kübra, Enes,
-#     Duygu, İrfan → A 07:30-17:00 (E kolonu) + hafta sonu rotasyon
-#   - İstanbul (mavi font) — vardiyaya girmez (on-call rotasyonu): Yağız, Sabri
-#   - Ankara (kırmızı font) — vardiyaya girer: Doğukan, Burak, Talha, Hasan,
-#     Furkan → A 08:00-18:00 (D kolonu) + B/C rotasyon
-#   - Ankara (kırmızı font) — vardiyaya girmez (on-call rotasyonu): Ülkü, Zehra
+#   - fixed_a grubu: hafta içi C kolonu (sabit A vardiyası, ofis)
+#   - istanbul (vardiyaya girer): A 07:30-17:00 (E kolonu) + hafta sonu
+#   - istanbul (on-call rotasyonu): vardiyaya girmez, sadece on-call
+#   - ankara (vardiyaya girer): A 08:00-18:00 (D kolonu) + B/C rotasyon
+#   - ankara (on-call rotasyonu): vardiyaya girmez, sadece on-call
 #
-#   - Hafta içi B vardiyası: 2 kişi (sabit: Duygu + Furkan + 1 rotating)
+#   - Hafta içi B vardiyası: 2 kişi (b_secondary çifti + 1 rotating)
 #   - Hafta içi C vardiyası: 1 kişi (haftalık rotating)
 #   - Hafta sonu A/B/C: her biri 1 farklı kişi
-#   - On-call: 4 haftalık döngü Ank → İst → Ank → İst (Zehra → Yağız → Ülkü → Sabri)
+#   - On-call: 4 haftalık döngü Ank ↔ İst alternate
 #   - Off-day: hafta sonu çalışan → hafta içi 1 gün izinli + hafta sonu 1 gün
 #   - Vardiyaya girmeyenler: Pzt-Per ofiste, Cuma evden çalışma
 
@@ -354,11 +358,11 @@ class PersonnelLocation(str, enum.Enum):
 
 
 class PersonnelGroup(str, enum.Enum):
-    """Excel'deki renk kodlamasıyla eşleşen üç grup.
+    """Renk kodlamasıyla eşleşen üç grup.
 
-    fixed_a   → siyah font: Rıdvan, Fatih (vardiyaya hiç girmez, sabit A)
-    istanbul  → mavi font:  İstanbul personeli (Yağız & Sabri on-call için)
-    ankara    → kırmızı font: Ankara personeli (Ülkü & Zehra on-call için)
+    fixed_a   → siyah font: vardiyaya hiç girmez, sabit A
+    istanbul  → mavi font:  İstanbul personeli
+    ankara    → kırmızı font: Ankara personeli
     """
     fixed_a = "fixed_a"
     istanbul = "istanbul"
@@ -366,10 +370,10 @@ class PersonnelGroup(str, enum.Enum):
 
 
 class Personnel(Base):
-    """Aylık vardiya jeneratörü için personel master tablosu (v0.7.0).
+    """Aylık vardiya jeneratörü için personel master tablosu.
 
     is_oncall_only: True ise bu kişi vardiyaya (B/C) hiç girmez, sadece
-    on-call rotasyonuna girer. Yağız, Sabri, Ülkü, Zehra için True.
+    on-call rotasyonuna girer.
 
     on_leave_until: belirli bir tarihe kadar izinli; jeneratör bu kişiyi
     o aralıkta atlar.
@@ -381,9 +385,9 @@ class Personnel(Base):
     location: Mapped[PersonnelLocation] = mapped_column(Enum(PersonnelLocation), index=True)
     group: Mapped[PersonnelGroup] = mapped_column(Enum(PersonnelGroup), index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    # Sadece on-call rotasyonu (vardiyaya girmez): Yağız/Sabri/Ülkü/Zehra
+    # Sadece on-call rotasyonu (vardiyaya girmez)
     is_oncall_only: Mapped[bool] = mapped_column(Boolean, default=False)
-    # Sabit A vardiyası (rotation yok): Rıdvan/Fatih için True
+    # Sabit A vardiyası (rotation yok)
     is_fixed_a: Mapped[bool] = mapped_column(Boolean, default=False)
     # Notlar (örn. "izinli 30 Nisan'a kadar")
     notes: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
@@ -394,7 +398,7 @@ class Personnel(Base):
 class MonthlyShiftSlot(str, enum.Enum):
     """Bir günde bir personelin atanabileceği slotlar.
 
-    a_fixed   → Sabit A (Rıdvan/Fatih), C kolonu, 09:00-18:00 ofis
+    a_fixed   → Sabit A (fixed_a grubu), C kolonu, 09:00-18:00 ofis
     a_ankara  → Ankara A (D kolonu), 08:00-18:00
     a_istanbul → İstanbul A (E kolonu), 07:30-17:00
     b_shift   → B vardiyası, 15:30-23:30
@@ -452,7 +456,7 @@ class DailyDuty(Base):
       - 2 öğlen nöbetçi (her ikisi de aynı lokasyondan: Ank-Ank veya İst-İst)
 
     Aylık Vardiya'dan beslenir: o gün B/C/on-call/leave/off olmayan kişiler
-    havuzdan seçilir (Rıdvan/Fatih hariç). Manuel müdahale
+    havuzdan seçilir (excluded_from_daily_duty listesindekiler hariç). Manuel müdahale
     `modified_by_user_id` ile korunur. Aynı kişi aynı gün × görev türü
     içinde birden fazla seat'e atanamaz (unique constraint).
     """

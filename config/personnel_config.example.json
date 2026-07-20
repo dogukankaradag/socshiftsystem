@@ -1,0 +1,31 @@
+{
+  "_comment": "Personel + rotasyon yapılandırması örneği. Bu dosyayı `personnel_config.json` olarak kopyalayıp kendi kadronuzu doldurun. Gerçek dosya .gitignored — hiçbir zaman commit edilmez.",
+  "_schema_notes": {
+    "personnel": "Aktif personel listesi. `full_name` benzersiz olmalı; DB'ye seed edilir.",
+    "location": "'istanbul' veya 'ankara'.",
+    "group": "PersonnelGroup enum değeri (şu an: 'istanbul' | 'ankara').",
+    "is_oncall_only": "true ise B/C rotasyonuna girmez, sadece on-call + fallback A vardiyası.",
+    "is_fixed_a": "true ise her hafta içi A vardiyasında (rotasyona girmez).",
+    "excluded_from_daily_duty": "Dağıtıcı/öğlen atamalarından tamamen dışlanan isimler.",
+    "weekday_rotation": "B/C 1. personel haftalık rotasyon sırası. Anchor Pazartesi bu listenin 0. kişisidir.",
+    "b_secondary": "B vardiyasında 2. personel için ikili rotasyon (2 kişi ardışık günleri paylaşır).",
+    "oncall_rotation": "On-call haftalık dönüşüm listesi (4'lü döngü).",
+    "friday_lunch_pool": "Cuma öğlen özel havuzu.",
+    "rotation_anchor_monday": "ISO tarih (YYYY-MM-DD, Pazartesi). Rotasyon indeksleri buradan hesaplanır.",
+    "forced_overrides": "Zorunlu atamalar. Her Otomatik Üret/Sıfırla & Üret'te uygulanır. `slot` = MonthlyShiftSlot enum ('wfh'|'oncall'|'leave'|'off'|'a_istanbul'|...)."
+  },
+  "personnel": [
+    {"full_name": "P01", "location": "istanbul", "group": "istanbul", "is_oncall_only": false, "is_fixed_a": false},
+    {"full_name": "P02", "location": "istanbul", "group": "istanbul", "is_oncall_only": false, "is_fixed_a": false},
+    {"full_name": "P03", "location": "istanbul", "group": "istanbul", "is_oncall_only": true,  "is_fixed_a": false},
+    {"full_name": "P04", "location": "ankara",   "group": "ankara",   "is_oncall_only": false, "is_fixed_a": false},
+    {"full_name": "P05", "location": "ankara",   "group": "ankara",   "is_oncall_only": true,  "is_fixed_a": false}
+  ],
+  "excluded_from_daily_duty": [],
+  "weekday_rotation": ["P01", "P02", "P04"],
+  "b_secondary": [],
+  "oncall_rotation": ["P03", "P05"],
+  "friday_lunch_pool": ["P03", "P05"],
+  "rotation_anchor_monday": "2026-06-01",
+  "forced_overrides": []
+}

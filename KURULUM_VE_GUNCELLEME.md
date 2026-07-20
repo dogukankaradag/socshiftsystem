@@ -546,7 +546,7 @@ GitHub'a doğrudan erişimi olmayan müşteri için:
 **Sen (lokal):**
 
 ```bash
-cd C:\Users\Doğukan\OneDrive\Masaüstü\MailSys
+cd C:\Users\<user>\Desktop\MailSys
 git checkout v0.5.4
 git archive --format=tar.gz --prefix=mailsys/ v0.5.4 > mailsys-v0.5.4.tar.gz
 # Bu dosyayı USB / S/FTP / kurum dosya sunucusuyla teslim et

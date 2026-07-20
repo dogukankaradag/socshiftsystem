@@ -1,4 +1,4 @@
-"""Seed + migration routines (v0.6.2 rol sistemi dahil)."""
+"""Seed + migration routines."""
 from __future__ import annotations
 import logging
 
@@ -11,30 +11,25 @@ from .database import engine
 from .models import (
     MailingList, Personnel, PersonnelGroup, PersonnelLocation, Role, User,
 )
+from .personnel_config import get_personnel_config
 
 log = logging.getLogger(__name__)
 settings = get_settings()
 
 
 def _migrate_roles(db: Session) -> None:
-    """v0.6.2 rol sistemi geçişi (PostgreSQL + SQLite ortak yol).
+    """Rol sistemi geçişi (PostgreSQL + SQLite ortak yol).
 
-    PostgreSQL enum tipi `Base.metadata.create_all()` ile **yeni değer
-    eklenmez**; bunun için `ALTER TYPE role ADD VALUE` gerekir. Bu yüzden:
+    PostgreSQL enum tipi `Base.metadata.create_all()` ile yeni değer eklenmez;
+    bunun için `ALTER TYPE role ADD VALUE` gerekir. Bu yüzden:
 
       1) PG ise: yeni enum değerleri (`standard`, `super_admin`) ekle.
-         `IF NOT EXISTS` ile idempotent. Autocommit izolasyonu zorunlu
-         çünkü bazı PG sürümleri ALTER TYPE'ı transaction içinde reddeder.
+         `IF NOT EXISTS` ile idempotent.
       2) Eski rolleri (`operator/supervisor/admin`) standard'a UPDATE et.
-      3) En az bir super_admin yoksa seed_admin email'ini super_admin'e
-         yükselt. Hiç kullanıcı yoksa seed_defaults sonradan oluşturur.
-
-    SQLite enum'u string'e benzediği için ALTER TYPE adımı atlanır;
-    UPDATE doğrudan çalışır.
+      3) En az bir super_admin yoksa seed_admin email'ini super_admin'e yükselt.
     """
     dialect = engine.dialect.name
 
-    # 1) PG enum'una yeni değerleri ekle (autocommit ile).
     if dialect == "postgresql":
         try:
             with engine.connect() as conn:
@@ -43,10 +38,8 @@ def _migrate_roles(db: Session) -> None:
                 conn.execute(text("ALTER TYPE role ADD VALUE IF NOT EXISTS 'super_admin'"))
             log.info("Role enum altered (added 'standard' + 'super_admin' if missing)")
         except Exception:
-            # ALTER hata verirse bile sistem yine de açılmaya çalışsın.
             log.exception("ALTER TYPE role ADD VALUE failed (continuing)")
 
-    # 2) Eski rol değerlerini standard'a güncelle (PG/SQLite ortak).
     try:
         with engine.begin() as conn:
             for legacy in ("operator", "supervisor", "admin"):
@@ -58,7 +51,6 @@ def _migrate_roles(db: Session) -> None:
     except Exception:
         log.exception("Legacy role migration UPDATE failed (continuing)")
 
-    # 3) En az bir super_admin var mı? Yoksa seed_admin'i yükselt.
     try:
         has_super = (
             db.query(User).filter(User.role == Role.super_admin).first() is not None
@@ -78,12 +70,10 @@ def _migrate_roles(db: Session) -> None:
 
 
 def _migrate_daily_duty_index(db: Session) -> None:
-    """v0.8.3: eski (day, duty_type) unique index'i sil; yeni index zaten
-    create_all tarafından oluşturulur. PG için manuel DROP gerekir."""
+    """Eski (day, duty_type) unique index'i sil."""
     try:
         with engine.connect() as conn:
             conn = conn.execution_options(isolation_level="AUTOCOMMIT")
-            # Eski v0.8.1 index'i (sadece varsa düşür)
             conn.execute(text("DROP INDEX IF EXISTS ix_daily_duty_unique"))
         log.info("Old daily_duty unique index dropped (if existed).")
     except Exception:
@@ -91,8 +81,7 @@ def _migrate_daily_duty_index(db: Session) -> None:
 
 
 def _migrate_monthly_shift_slot_enum(db: Session) -> None:
-    """v0.8.6: monthlyshiftslot enum'una 'wfh' değerini ekle.
-    PG'de ALTER TYPE; SQLite'da atlanır (string enum)."""
+    """monthlyshiftslot enum'una 'wfh' değerini ekle."""
     dialect = engine.dialect.name
     if dialect != "postgresql":
         return
@@ -106,9 +95,7 @@ def _migrate_monthly_shift_slot_enum(db: Session) -> None:
 
 
 def _migrate_entry_mpls_columns(db: Session) -> None:
-    """v0.8.14: entries tablosuna mpls_team_id + mpls_reminder_enabled kolonları
-    ekle. create_all yeni tablolar için sorun değil ama mevcut tabloya kolon
-    ekleyemez → PG'de manuel ALTER TABLE gerekir. SQLite'da atlanır."""
+    """entries tablosuna mpls_team_id + mpls_reminder_enabled kolonları."""
     dialect = engine.dialect.name
     if dialect != "postgresql":
         return
@@ -130,15 +117,84 @@ def _migrate_entry_mpls_columns(db: Session) -> None:
         log.exception("entries MPLS columns migration failed (continuing)")
 
 
+def _migrate_entry_reported_at(db: Session) -> None:
+    """entries.reported_at kolonu (callers reset için)."""
+    dialect = engine.dialect.name
+    if dialect != "postgresql":
+        return
+    try:
+        with engine.connect() as conn:
+            conn = conn.execution_options(isolation_level="AUTOCOMMIT")
+            conn.execute(text(
+                "ALTER TABLE entries "
+                "ADD COLUMN IF NOT EXISTS reported_at TIMESTAMP WITH TIME ZONE"
+            ))
+        log.info("entries.reported_at column added (if missing).")
+    except Exception:
+        log.exception("entries.reported_at migration failed (continuing)")
+
+
+def _location_enum(value: str) -> PersonnelLocation:
+    try:
+        return PersonnelLocation(value)
+    except ValueError:
+        return PersonnelLocation.istanbul
+
+
+def _group_enum(value: str) -> PersonnelGroup:
+    try:
+        return PersonnelGroup(value)
+    except ValueError:
+        return PersonnelGroup.istanbul
+
+
+def _seed_personnel(db: Session) -> None:
+    """Config'ten okunan personeli DB'ye idempotent şekilde ekler."""
+    cfg = get_personnel_config()
+    added = 0
+    for spec in cfg.personnel:
+        if db.query(Personnel).filter(Personnel.full_name == spec.full_name).first():
+            continue
+        db.add(Personnel(
+            full_name=spec.full_name,
+            location=_location_enum(spec.location),
+            group=_group_enum(spec.group),
+            is_oncall_only=spec.is_oncall_only,
+            is_fixed_a=spec.is_fixed_a,
+            is_active=True,
+        ))
+        added += 1
+    if added:
+        log.info("Personnel seeded (idempotent): %d new records", added)
+
+
+def _deactivate_stale_personnel(db: Session) -> None:
+    """Config listesinde YER ALMAYAN personeli is_active=False yapar.
+
+    Böylece kadrodan çıkarılan kişiler config'ten silinerek Aylık Vardiya
+    listesinden otomatik düşer. Kayıtları silmez — geçmiş atamalar korunur.
+    """
+    cfg = get_personnel_config()
+    active_names = {p.full_name for p in cfg.personnel}
+    stale = (
+        db.query(Personnel)
+        .filter(Personnel.is_active.is_(True))
+        .filter(~Personnel.full_name.in_(active_names))
+        .all()
+    ) if active_names else []
+    for p in stale:
+        p.is_active = False
+    if stale:
+        db.commit()
+        log.info("Deactivated %d stale personnel (not in config)", len(stale))
+
+
 def seed_defaults(db: Session) -> None:
-    # Önce mevcut rolleri migrate et.
     _migrate_roles(db)
-    # v0.8.3: eski daily_duty unique index'ini sil
     _migrate_daily_duty_index(db)
-    # v0.8.6: monthlyshiftslot enum'una 'wfh' ekle
     _migrate_monthly_shift_slot_enum(db)
-    # v0.8.14: entries.mpls_team_id + mpls_reminder_enabled kolonları
     _migrate_entry_mpls_columns(db)
+    _migrate_entry_reported_at(db)
 
     admin = db.query(User).filter(User.email == settings.seed_admin_email).first()
     if not admin:
@@ -162,50 +218,6 @@ def seed_defaults(db: Session) -> None:
         log.info("Seeded default mailing list")
 
     _seed_personnel(db)
+    _deactivate_stale_personnel(db)
 
     db.commit()
-
-
-# v0.7.0: Aylık vardiya jeneratörü için bilinen personel seed verisi.
-# Excel'deki renk kodlamasından çıkardığım gruplama:
-#   fixed_a (siyah font, İstanbul, vardiyaya hiç girmez): Rıdvan, Fatih
-#   istanbul (mavi font, vardiyaya girer): Mehmet, Beyza, Kübra, Enes, Duygu, İrfan
-#   istanbul (mavi, on-call rotasyonu): Yağız, Sabri
-#   ankara (kırmızı, vardiyaya girer): Doğukan, Burak, Talha, Hasan, Furkan
-#   ankara (kırmızı, on-call rotasyonu): Ülkü, Zehra
-_SEED_PERSONNEL = [
-    # (name, location, group, is_oncall_only, is_fixed_a)
-    ("Rıdvan", PersonnelLocation.istanbul, PersonnelGroup.fixed_a, False, True),
-    ("Fatih",  PersonnelLocation.istanbul, PersonnelGroup.fixed_a, False, True),
-    ("Mehmet", PersonnelLocation.istanbul, PersonnelGroup.istanbul, False, False),
-    ("Beyza",  PersonnelLocation.istanbul, PersonnelGroup.istanbul, False, False),
-    ("Kübra",  PersonnelLocation.istanbul, PersonnelGroup.istanbul, False, False),
-    ("Enes",   PersonnelLocation.istanbul, PersonnelGroup.istanbul, False, False),
-    ("Duygu",  PersonnelLocation.istanbul, PersonnelGroup.istanbul, False, False),
-    ("İrfan",  PersonnelLocation.istanbul, PersonnelGroup.istanbul, False, False),
-    ("Yağız",  PersonnelLocation.istanbul, PersonnelGroup.istanbul, True,  False),
-    ("Sabri",  PersonnelLocation.istanbul, PersonnelGroup.istanbul, True,  False),
-    ("Doğukan", PersonnelLocation.ankara, PersonnelGroup.ankara, False, False),
-    ("Burak",   PersonnelLocation.ankara, PersonnelGroup.ankara, False, False),
-    ("Talha",   PersonnelLocation.ankara, PersonnelGroup.ankara, False, False),
-    ("Hasan",   PersonnelLocation.ankara, PersonnelGroup.ankara, False, False),
-    ("Furkan",  PersonnelLocation.ankara, PersonnelGroup.ankara, False, False),
-    ("Ülkü",    PersonnelLocation.ankara, PersonnelGroup.ankara, True,  False),
-    ("Zehra",   PersonnelLocation.ankara, PersonnelGroup.ankara, True,  False),
-]
-
-
-def _seed_personnel(db: Session) -> None:
-    """Idempotent: aynı isimle kişi varsa atlanır (kullanıcı manuel güncelleyebilir)."""
-    for name, loc, group, oncall_only, fixed_a in _SEED_PERSONNEL:
-        if db.query(Personnel).filter(Personnel.full_name == name).first():
-            continue
-        db.add(Personnel(
-            full_name=name,
-            location=loc,
-            group=group,
-            is_oncall_only=oncall_only,
-            is_fixed_a=fixed_a,
-            is_active=True,
-        ))
-    log.info("Personnel seeded (idempotent): %d names", len(_SEED_PERSONNEL))

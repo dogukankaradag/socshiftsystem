@@ -4,7 +4,7 @@
 //   - Sadece hafta içi (Pzt-Cu)
 //   - Her gün: 1 Dağıtıcı + 1 Öğlen Nöbetçi
 //   - O gün A vardiyasında olan kişiler arasından seçim
-//   - Rıdvan ve Fatih hariç tüm eligible personel
+//   - Config'teki `excluded_from_daily_duty` hariç tüm eligible personel
 //   - Hedef: her aktif personele ayda ≥2 dağıtıcı + ≥2 öğlen
 //
 // Standart kullanıcı: takvimi okur, CSV indirir.
@@ -195,8 +195,8 @@ export default function Distributors() {
           <p className="text-sm text-gray-500 dark:text-slate-400">
             Hafta içi günlük <b>Aylık Dağıtıcı</b> + <b>Öğlen Nöbetçi</b> atamaları.
             Aylık Vardiya'da A vardiyasında olan kişiler arasından otomatik
-            üretilir; her personele ayda ≥2 dağıtıcı + ≥2 öğlen düşürülür
-            (Rıdvan / Fatih hariç). {isSuperAdmin
+            üretilir; her personele ayda ≥2 dağıtıcı + ≥2 öğlen düşürülür.
+            {' '}{isSuperAdmin
               ? 'Hücreye tıklayarak manuel düzenleyebilirsiniz.'
               : 'Sadece okuma yetkisi.'}
           </p>
@@ -362,7 +362,7 @@ export default function Distributors() {
               <div className="text-xs uppercase text-gray-500 mb-1">Aylık Dağıtıcı</div>
               <ul className="text-sm divide-y divide-gray-100 dark:divide-slate-700">
                 {personnel
-                  .filter((p) => !['Rıdvan', 'Fatih'].includes(p.full_name))
+                  .filter((p) => p.is_active)
                   .map((p) => {
                     const c = counts.dist.get(p.full_name) || 0;
                     return (
@@ -378,7 +378,7 @@ export default function Distributors() {
               <div className="text-xs uppercase text-gray-500 mb-1">Öğlen Nöbetçi</div>
               <ul className="text-sm divide-y divide-gray-100 dark:divide-slate-700">
                 {personnel
-                  .filter((p) => !['Rıdvan', 'Fatih'].includes(p.full_name))
+                  .filter((p) => p.is_active)
                   .map((p) => {
                     const c = counts.lunch.get(p.full_name) || 0;
                     return (
@@ -404,7 +404,7 @@ export default function Distributors() {
           dutyType={editing.duty_type}
           existingList={editing.existingList}
           expectedCount={editing.expectedCount}
-          personnel={personnel.filter((p) => !['Rıdvan', 'Fatih'].includes(p.full_name))}
+          personnel={personnel.filter((p) => p.is_active)}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); load(); }}
         />
@@ -563,8 +563,8 @@ function DutyEditModal({
         )}
         {dutyType === 'lunch' && expectedCount === 1 && (
           <p className="text-xs text-gray-500 dark:text-slate-400 -mt-1">
-            <b>Cuma öğlen kuralı:</b> Sadece 1 kişi atanır; havuz Yağız / Sabri
-            / Ülkü / Zehra ile sınırlıdır.
+            <b>Cuma öğlen kuralı:</b> Sadece 1 kişi atanır; havuz config'teki
+            <code> friday_lunch_pool </code>listesiyle sınırlıdır.
           </p>
         )}
         {locWarning && (

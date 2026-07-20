@@ -9,3 +9,7 @@ dist/
 .vite/
 .DS_Store
 *.log
+
+# v0.9.0: Personnel config — asla commit edilmez (gerçek isim/kadro verisi).
+# `config/personnel_config.example.json` template olarak commitlenir.
+config/personnel_config.json
