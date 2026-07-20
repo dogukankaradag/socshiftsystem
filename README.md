@@ -1,4 +1,4 @@
-# MSSP Handover — v0.9.0
+# MSSP Handover — v0.9.1
 
 NOC / operasyon ekipleri için yapılandırılmış vardiya devir ve raporlama
 platformu. Serbest format e-posta devir alışkanlığını; aranabilir,
@@ -130,6 +130,9 @@ Config'te tanımlanan rotasyonlar üzerinden çalışır:
   A vardiyasında.
 - **Hafta sonu:** A/B/C için 3 farklı kişi. B/C 1st ve B-2nd bu hafta hafta sonu
   off (max 5/hafta).
+- **Pazar C → Pazartesi off (v0.9.1):** Pazar günü C vardiyasında olan kişi
+  bir sonraki Pazartesi hiçbir slotta olamaz — otomatik `off` atanır. Ay
+  sınırını da geçer (önceki ayın son Pazar'ı DB'den okunur).
 - **FORCED_OVERRIDES:** her Otomatik Üret / Sıfırla & Üret'te garantili
   uygulanır. On-call slot'lu override o hafta için normal rotasyonu skipler.
 

@@ -40,6 +40,12 @@
     Config'teki `forced_overrides` her Otomatik Üret / Sıfırla & Üret'te
     garantili uygulanır. Manuel veya otomatik atama olsa bile üstüne yazılır.
     On-call slot'lu bir override o hafta için normal rotasyonu skipler.
+
+  PAZAR C → PAZARTESİ OFF (v0.9.1):
+    Hafta sonu Pazar günü C vardiyasında olan kişi bir sonraki Pazartesi
+    hiçbir slotta yer alamaz — otomatik `off` atanır. Cross-month'ta önceki
+    ayın son Pazar'ı da DB'den okunup uygulanır. Manuel-lock veya
+    FORCED_OVERRIDE mevcutsa dokunulmaz.
 """
 from __future__ import annotations
 from calendar import monthrange
@@ -423,6 +429,51 @@ def generate_month(
             slot=slot,
             note="Sabit override",
         ))
+
+    # --- v0.9.1: Pazar C vardiyası → sonraki Pazartesi zorunlu off ---
+    # Hafta sonu Pazar günü C vardiyasında olan kişi bir sonraki Pazartesi
+    # HİÇBİR slotta olamaz. Otomatik olarak `off` atanır. Cross-week (aynı ay
+    # içi) ve cross-month (önceki aydan gelen bloklama) desteklenir.
+    # Manuel-lock veya FORCED_OVERRIDE zaten varsa dokunulmaz.
+    sunday_c_next_monday: list[tuple[int, date]] = []
+
+    # (a) Aynı ay içinde: to_add'daki Pazar C atamalarından sonraki Pzt
+    for a in to_add:
+        if a.day.weekday() == 6 and a.slot == MonthlyShiftSlot.c_shift:
+            next_mon = a.day + timedelta(days=1)
+            if first_day <= next_mon <= last_day:
+                sunday_c_next_monday.append((a.personnel_id, next_mon))
+
+    # (b) Cross-month: ay Pazartesi ile başlıyorsa önceki Pazar'ı DB'den çek
+    if first_day.weekday() == 0:
+        prev_sunday = first_day - timedelta(days=1)
+        prev_c_rows = (
+            db.query(MonthlyShiftAssignment)
+            .filter(MonthlyShiftAssignment.day == prev_sunday)
+            .filter(MonthlyShiftAssignment.slot == MonthlyShiftSlot.c_shift)
+            .all()
+        )
+        for row in prev_c_rows:
+            sunday_c_next_monday.append((row.personnel_id, first_day))
+
+    # Uygula: mevcut Monday atamalarını temizle + off ekle + lock'la
+    for pid, mon in sunday_c_next_monday:
+        if (pid, mon) in locked_keys:
+            # Manuel lock ya da FORCED_OVERRIDE var — saygı göster
+            continue
+        # Bu (person, day) için mevcut to_add kayıtlarını çıkar
+        to_add[:] = [
+            a for a in to_add
+            if not (a.personnel_id == pid and a.day == mon)
+        ]
+        # Zorunlu off ekle
+        to_add.append(MonthlyShiftAssignment(
+            personnel_id=pid,
+            day=mon,
+            slot=MonthlyShiftSlot.off,
+            note="Pazar C sonrası zorunlu off",
+        ))
+        locked_keys.add((pid, mon))
 
     # Boş hücrelere off yaz
     person_days: dict[int, set[date]] = {}
