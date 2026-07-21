@@ -294,10 +294,9 @@ export default function Distributors() {
                     {(['distributor', 'lunch'] as DailyDutyType[]).map((t) => {
                       const list = cell[t] || [];
                       const hasManual = list.some((x) => x.modified_by_user_id);
-                      // v0.8.4: Cuma öğlen sadece 1 kişi olur (özel havuz).
-                      // Hedef sayı: distributor=2 her gün, lunch=1 Cuma / 2 diğer
-                      const isFridayLunchSlot = t === 'lunch' && dt.getDay() === 5;
-                      const expectedCount = isFridayLunchSlot ? 1 : 2;
+                      // v0.9.2: Cuma öğlen artık 2 kişi (friday_lunch_pool).
+                      // Hedef sayı: her zaman 2 (dist + lunch, hafta içi).
+                      const expectedCount = 2;
                       return (
                         <td
                           key={t}
@@ -557,14 +556,9 @@ function DutyEditModal({
 
         {dutyType === 'lunch' && expectedCount >= 2 && (
           <p className="text-xs text-gray-500 dark:text-slate-400 -mt-1">
-            <b>Öğlen nöbet kuralı:</b> 2 kişi mutlaka aynı lokasyondan olmalı
-            (Ank-Ank veya İst-İst).
-          </p>
-        )}
-        {dutyType === 'lunch' && expectedCount === 1 && (
-          <p className="text-xs text-gray-500 dark:text-slate-400 -mt-1">
-            <b>Cuma öğlen kuralı:</b> Sadece 1 kişi atanır; havuz config'teki
-            <code> friday_lunch_pool </code>listesiyle sınırlıdır.
+            <b>Öğlen nöbet kuralı:</b> Pzt-Per günü 2 kişi aynı lokasyondan
+            (Ank-Ank veya İst-İst). Cuma günü 2 kişi config'teki
+            <code> friday_lunch_pool </code>listesinden (lokasyon bağımsız).
           </p>
         )}
         {locWarning && (

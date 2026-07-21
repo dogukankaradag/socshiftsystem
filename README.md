@@ -1,4 +1,4 @@
-# MSSP Handover — v0.9.1
+# MSSP Handover — v0.9.2
 
 NOC / operasyon ekipleri için yapılandırılmış vardiya devir ve raporlama
 platformu. Serbest format e-posta devir alışkanlığını; aranabilir,
@@ -42,22 +42,19 @@ denetlenebilir ve zamanlanmış otomatik raporlamaya taşır.
 
 ---
 
-## Personel yapılandırması (v0.9.0)
+## Personel yapılandırması
 
 Personel kadrosu, rotasyon sıraları, on-call havuzu, Cuma öğlen havuzu ve
-sabit override'lar **`.gitignored`** olan bir JSON dosyasından okunur:
+sabit override'lar bir JSON dosyasından okunur:
 
 ```
-config/personnel_config.json            ← gerçek kadronuz (asla commit edilmez)
-config/personnel_config.example.json    ← placeholder örneği (commit edilir)
+config/personnel_config.json            ← gerçek kadro (v0.9.2 itibariyle git ile takip edilir)
+config/personnel_config.example.json    ← placeholder örneği
 ```
 
-İlk kurulumda example dosyayı kopyalayıp kendi verinizle doldurun:
-
-```bash
-cp config/personnel_config.example.json config/personnel_config.json
-$EDITOR config/personnel_config.json
-```
+Kadro değişikliği yapmak için `config/personnel_config.json`'ı düzenleyip
+`git commit` + `git push` yapın; sunucu `git pull` sonrası `docker compose
+restart backend` ile yeni config'i yükler.
 
 Docker Compose bu dizini backend container'ının `/app/config`'ine read-only
 mount eder. Startup'ta config okunur ve `_seed_personnel()` DB'ye idempotent
@@ -142,7 +139,8 @@ Config'te tanımlanan rotasyonlar üzerinden çalışır:
 - **Dağıtıcı:** günde 1 İstanbul + 1 Ankara personeli. Haftada max 1/kişi.
 - **Öğlen (Pzt-Per):** günde 2 kişi, aynı lokasyondan (haftalık 3 Ank / 2 İst
   desenine göre). Ankara + on-call-only iki kişi aynı gün öğlen olamaz.
-- **Öğlen (Cuma):** 1 kişi, `friday_lunch_pool` havuzundan.
+- **Öğlen (Cuma):** 2 kişi, `friday_lunch_pool` havuzundan (lokasyon bağımsız).
+  Pair kısıtı (Ankara + on-call-only ikilisi) uygulanır.
 - **Havuz:** o gün B/C/leave/off olmayan tüm personel (on-call PASİF durum;
   aynı gün dist/öğlen alabilir). `excluded_from_daily_duty` listesi hariç.
 - **Hedef:** kişi başı ay içinde ≥2 dağıtıcı + ≥2 öğlen.

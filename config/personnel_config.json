@@ -1,0 +1,35 @@
+{
+  "_comment": "Bu dosya .gitignored — asla commit edilmez. Gerçek isim/e-posta verisini burada tutun. Sunucuya SCP ile ayrıca gönderin.",
+  "personnel": [
+    {"full_name": "Mehmet",  "location": "istanbul", "group": "istanbul", "is_oncall_only": false, "is_fixed_a": false},
+    {"full_name": "Beyza",   "location": "istanbul", "group": "istanbul", "is_oncall_only": false, "is_fixed_a": false},
+    {"full_name": "Kübra",   "location": "istanbul", "group": "istanbul", "is_oncall_only": false, "is_fixed_a": false},
+    {"full_name": "Enes",    "location": "istanbul", "group": "istanbul", "is_oncall_only": false, "is_fixed_a": false},
+    {"full_name": "Duygu",   "location": "istanbul", "group": "istanbul", "is_oncall_only": false, "is_fixed_a": false},
+    {"full_name": "İrfan",   "location": "istanbul", "group": "istanbul", "is_oncall_only": false, "is_fixed_a": false},
+    {"full_name": "Yağız",   "location": "istanbul", "group": "istanbul", "is_oncall_only": true,  "is_fixed_a": false},
+    {"full_name": "Sabri",   "location": "istanbul", "group": "istanbul", "is_oncall_only": true,  "is_fixed_a": false},
+    {"full_name": "Doğukan", "location": "ankara",   "group": "ankara",   "is_oncall_only": false, "is_fixed_a": false},
+    {"full_name": "Burak",   "location": "ankara",   "group": "ankara",   "is_oncall_only": false, "is_fixed_a": false},
+    {"full_name": "Talha",   "location": "ankara",   "group": "ankara",   "is_oncall_only": false, "is_fixed_a": false},
+    {"full_name": "Hasan",   "location": "ankara",   "group": "ankara",   "is_oncall_only": false, "is_fixed_a": false},
+    {"full_name": "Furkan",  "location": "ankara",   "group": "ankara",   "is_oncall_only": false, "is_fixed_a": false},
+    {"full_name": "Ülkü",    "location": "ankara",   "group": "ankara",   "is_oncall_only": true,  "is_fixed_a": false},
+    {"full_name": "Zehra",   "location": "ankara",   "group": "ankara",   "is_oncall_only": true,  "is_fixed_a": false}
+  ],
+  "excluded_from_daily_duty": [],
+  "weekday_rotation": ["Talha", "İrfan", "Doğukan", "Enes", "Hasan", "Kübra", "Burak", "Mehmet", "Beyza"],
+  "b_secondary": ["Furkan", "Duygu"],
+  "oncall_rotation": ["Zehra", "Yağız", "Ülkü", "Sabri"],
+  "friday_lunch_pool": ["Yağız", "Sabri", "Ülkü", "Zehra"],
+  "rotation_anchor_monday": "2026-06-01",
+  "forced_overrides": [
+    {"name": "Yağız",  "start_date": "2026-07-20", "end_date": "2026-07-24", "slot": "wfh"},
+    {"name": "Talha",  "start_date": "2026-07-20", "end_date": "2026-07-24", "slot": "wfh"},
+    {"name": "Zehra",  "start_date": "2026-07-20", "end_date": "2026-07-26", "slot": "oncall"},
+    {"name": "Beyza",  "start_date": "2026-07-20", "end_date": "2026-07-26", "slot": "leave"},
+    {"name": "Sabri",  "start_date": "2026-07-20", "end_date": "2026-07-22", "slot": "leave"},
+    {"name": "Mehmet", "start_date": "2026-07-20", "end_date": "2026-07-22", "slot": "leave"},
+    {"name": "Duygu",  "start_date": "2026-07-21", "end_date": "2026-07-21", "slot": "leave"}
+  ]
+}

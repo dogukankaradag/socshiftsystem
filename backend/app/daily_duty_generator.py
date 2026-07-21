@@ -8,7 +8,8 @@
   - `excluded_from_daily_duty` config listesindeki kişiler havuza girmez.
   - Gün başına 2 Dağıtıcı + 2 Öğlen Nöbet = 4 farklı kişi.
   - Dağıtıcı: 1 İstanbul + 1 Ankara. Öğlen (Pzt-Per): 2 kişi aynı lokasyondan.
-  - Cuma öğlen: 1 kişi, `friday_lunch_pool` config listesinden.
+  - Cuma öğlen: 2 kişi, `friday_lunch_pool` config listesinden (lokasyon
+    bağımsız). Pair kısıtı (Ankara + on-call-only ikilisi) uygulanır.
   - Kişi başı hedef ay içinde ≥2 dağıtıcı + ≥2 öğlen; haftada max 1 dist +
     1 öğlen (no-repeat-week).
   - Öğlen çift kısıtı: aynı gün iki on-call-only Ankara personeli
@@ -381,31 +382,74 @@ def generate_month(
         ]
 
         if is_friday:
-            # Cuma → 1 kişi, friday_lunch_pool tamamından (lokasyon bağımsız).
-            # Havuz ~4 haftada 1 kez rotasyona girer.
-            if lunch_existing == 0:
+            # v0.9.2: Cuma → 2 kişi, friday_lunch_pool tamamından (lokasyon
+            # bağımsız). Pair kısıtı (Ankara + on-call-only ikilisi olamaz)
+            # uygulanır — pratikte bu, Ülkü/Zehra tarzı iki Ank on-call
+            # kişinin aynı Cuma öğlen çiftinde olmamasını sağlar.
+            needed = 2 - lunch_existing
+            if needed > 0:
                 friday_pool = _friday_lunch_pool()
                 special_eligible = [
                     pid for pid in lunch_eligible
                     if name_by_id[pid] in friday_pool
                 ]
-                if not special_eligible:
+                # lunch_existing == 1 ise mevcut manuel kişiyi pair kontrolüne
+                # dahil et.
+                existing_pids_today: list[int] = []
+                if lunch_existing >= 1:
+                    existing_rows = (
+                        db.query(DailyDuty)
+                        .filter(DailyDuty.day == day)
+                        .filter(DailyDuty.duty_type == DailyDutyType.lunch)
+                        .all()
+                    )
+                    existing_pids_today = [e.personnel_id for e in existing_rows]
+
+                if len(special_eligible) < needed and needed > 1:
                     result.warnings.append(
                         f"{day} (Cuma): öğlen için friday_lunch_pool "
-                        "havuzundan eligible kişi yok (bu hafta zaten kullanılmış "
-                        "veya hepsi B/C/leave)."
+                        f"havuzunda yeterli eligible kişi yok "
+                        f"(bulunan: {len(special_eligible)}, gereken: {needed})."
                     )
-                else:
-                    chosen = _pick_lowest(special_eligible, counts_lunch, name_by_id)
-                    if chosen:
-                        to_add.append(DailyDuty(
-                            day=day, duty_type=DailyDutyType.lunch,
-                            personnel_id=chosen,
-                        ))
-                        counts_lunch[chosen] += 1
-                        assigned_today.add(chosen)
-                        used_this_week.add(chosen)
-            # lunch_existing >= 1: zaten dolu
+
+                picked_friday: list[int] = []
+                remaining_friday = list(special_eligible)
+                while len(picked_friday) < needed:
+                    if not remaining_friday:
+                        break
+                    all_partners = existing_pids_today + picked_friday
+                    eligible_now = [
+                        pid for pid in remaining_friday
+                        if pid in person_by_id
+                        and all(
+                            partner in person_by_id
+                            and _pair_allowed(person_by_id[pid], person_by_id[partner])
+                            for partner in all_partners
+                        )
+                    ]
+                    if not eligible_now:
+                        if all_partners:
+                            result.warnings.append(
+                                f"{day} (Cuma): öğlen için yasak çift kısıtı "
+                                "(Ankara + on-call-only eşleşmesi) nedeniyle "
+                                "friday_lunch_pool'da aday kalmadı."
+                            )
+                        break
+                    chosen = _pick_lowest(eligible_now, counts_lunch, name_by_id)
+                    if chosen is None:
+                        break
+                    picked_friday.append(chosen)
+                    remaining_friday = [pid for pid in remaining_friday if pid != chosen]
+
+                for pid in picked_friday:
+                    to_add.append(DailyDuty(
+                        day=day, duty_type=DailyDutyType.lunch,
+                        personnel_id=pid,
+                    ))
+                    counts_lunch[pid] += 1
+                    assigned_today.add(pid)
+                    used_this_week.add(pid)
+            # lunch_existing >= 2: zaten dolu
         else:
             # v0.8.15: Pzt-Per → 2 kişi, target_loc'tan, haftada tekrarsız.
             # friday_lunch_pool üyeleri de havuza DAHİL — böylece hepsi
