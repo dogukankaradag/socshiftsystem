@@ -19,7 +19,7 @@ const TYPES: EntryType[] = [
   'iys',
 ];
 
-// "YYYY-MM-DDTHH:mm" (yerel, GMT+3) girişini UTC ISO string'e çevir.
+// "YYYY-MM-DDTHH:mm" (yerel, Europe/Istanbul) girişini UTC ISO string'e çevir.
 function localInputToUtcIso(v: string): string | null {
   if (!v) return null;
   const iso = v.length === 16 ? `${v}:00+03:00` : `${v}+03:00`;
@@ -216,7 +216,7 @@ export default function NewEntry() {
                 onChange={(e) => setOccursAt(e.target.value)}
               />
               <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
-                Taşıma ileride bir tarihte gerçekleşecekse saat (GMT+3) seçin.
+                Taşıma ileride bir tarihte gerçekleşecekse saat (Europe/Istanbul) seçin.
                 Tarih gelene kadar tüm vardiya raporlarında hatırlatılır.
               </p>
             </div>

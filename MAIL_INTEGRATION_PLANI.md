@@ -145,14 +145,14 @@ Sistem iki seviyeli alıcı yönetimi sunar:
 
 ---
 
-## 6. Zamanlanmış Gönderim (GMT+3)
+## 6. Zamanlanmış Gönderim (Europe/Istanbul)
 
 - `APScheduler` her 30 saniyede bir çalışır ve `Report` tablosundaki
   `status='scheduled' AND scheduled_at <= now()` kayıtları yakalar.
 - Frontend'deki `datetime-local` girdisi naive bir zaman olarak
   backend'e gider. Backend `Europe/Istanbul` (`scheduler_timezone`)
   zamanı olarak yorumlar, UTC'ye çevirip `scheduled_at` kolonuna yazar.
-- Türkiye DST kullanmadığından sapma riski yoktur (sabit GMT+3).
+- Türkiye DST kullanmadığından sapma riski yoktur (Europe/Istanbul = UTC+3 sabit).
 - Zamanlanmış raporlar Raporlar sekmesinde **mavi `planlandı`** etiketiyle
   görünür. "Planlamayı İptal" butonu raporu `taslak` durumuna düşürür.
 

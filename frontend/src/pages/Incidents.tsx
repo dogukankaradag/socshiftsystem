@@ -124,7 +124,7 @@ export default function Incidents() {
                     <span className={`pill ${STATUS_CLASS[i.status]}`}>{STATUS_LABEL[i.status]}</span>
                   </td>
                   <td className="px-4 py-2 text-gray-500">
-                    {new Date(i.opened_at).toLocaleDateString('tr-TR')}
+                    {new Date(i.opened_at).toLocaleDateString('tr-TR', { timeZone: 'Europe/Istanbul' })}
                   </td>
                   <td className="px-4 py-2 text-gray-500">{i.entry_count}</td>
                   <td className="px-4 py-2 whitespace-nowrap space-x-2">

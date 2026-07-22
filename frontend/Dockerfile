@@ -9,6 +9,11 @@ RUN npm run build
 
 # --- runtime (nginx) ---
 FROM nginx:1.27-alpine
+# v0.9.4: tzdata (Europe/Istanbul) + TZ env
+RUN apk add --no-cache tzdata && \
+    cp /usr/share/zoneinfo/Europe/Istanbul /etc/localtime && \
+    echo "Europe/Istanbul" > /etc/timezone
+ENV TZ=Europe/Istanbul
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 80

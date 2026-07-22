@@ -2,7 +2,7 @@
 
 Domain model:
   User          - operators, supervisors, admins (RBAC)
-  Shift         - a shift window (A/B/C, Europe/Istanbul GMT+3), owned by 1..N operators
+  Shift         - a shift window (A/B/C, Europe/Istanbul), owned by 1..N operators
   Entry         - structured operator input during a shift (see EntryType)
   Incident      - long-running issues with status lifecycle (open -> resolved)
   Report        - generated & dispatched handover report (snapshot of entries)
@@ -72,7 +72,7 @@ NUMERIC_ENTRY_TYPES = {EntryType.dhs, EntryType.iys}
 
 
 class ShiftType(str, enum.Enum):
-    """A/B/C vardiyaları (Europe/Istanbul, GMT+3).
+    """A/B/C vardiyaları (Europe/Istanbul).
 
     A: 07:30 - 15:30
     B: 15:30 - 23:30

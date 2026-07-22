@@ -1,4 +1,4 @@
-# MSSP Handover — v0.9.2
+# MSSP Handover — v0.9.4
 
 NOC / operasyon ekipleri için yapılandırılmış vardiya devir ve raporlama
 platformu. Serbest format e-posta devir alışkanlığını; aranabilir,
@@ -33,7 +33,7 @@ denetlenebilir ve zamanlanmış otomatik raporlamaya taşır.
 | Düzenleme & silme          | Girişler, raporlar (gönderilmeden), olaylar için satır içi Düzenle / Sil |
 | Tema                       | Aydınlık / karanlık mod toggle                                    |
 | Rapor özeti                | Yerel heuristik özetleyici — harici LLM yok                       |
-| Zamanlanmış gönderim       | APScheduler, GMT+3 (Europe/Istanbul); per-rapor datetime          |
+| Zamanlanmış gönderim       | APScheduler, Europe/Istanbul; per-rapor datetime                  |
 | Alıcılar                   | TO + CC alanları, varsayılan mail listesi + per-rapor override    |
 | Çıktılar                   | PDF (reportlab) ve CSV                                            |
 | Analitik                   | 14 günlük trend, öncelik dağılımı, 30 günlük tür bazlı toplamlar  |
@@ -144,7 +144,10 @@ Config'te tanımlanan rotasyonlar üzerinden çalışır:
 - **Havuz:** o gün B/C/leave/off olmayan tüm personel (on-call PASİF durum;
   aynı gün dist/öğlen alabilir). `excluded_from_daily_duty` listesi hariç.
 - **Hedef:** kişi başı ay içinde ≥2 dağıtıcı + ≥2 öğlen.
-- Manuel müdahale (`modified_by_user_id` NOT NULL) korunur.
+- Manuel müdahale (`modified_by_user_id` NOT NULL) korunur — Aylık Vardiya
+  çakışması hariç: bir kişi o gün `leave`/`off`/`B`/`C` alıyorsa mevcut
+  dist/lunch kaydı (manuel dahil) otomatik silinip boşluk yeniden doldurulur
+  (v0.9.3).
 
 ---
 

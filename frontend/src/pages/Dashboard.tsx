@@ -155,7 +155,7 @@ export default function Dashboard() {
           {shift && (
             <p className="text-sm text-gray-500 dark:text-slate-400">
               {SHIFT_TYPE_LABEL[shift.shift_type]} · başlangıç{' '}
-              {new Date(shift.started_at).toLocaleString('tr-TR')} · {shift.entry_count} giriş
+              {new Date(shift.started_at).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })} · {shift.entry_count} giriş
             </p>
           )}
         </div>
@@ -292,7 +292,7 @@ export default function Dashboard() {
                   </div>
                   <div className="text-xs text-gray-400 dark:text-slate-500 mt-1">
                     {e.author_name || `#${e.author_id}`} ·{' '}
-                    {new Date(e.created_at).toLocaleString('tr-TR')}
+                    {new Date(e.created_at).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })}
                   </div>
                 </div>
                 <div className="flex flex-col gap-1 shrink-0 items-end">
@@ -488,7 +488,7 @@ function EntryEditModal({
 
         {allowsOccursAt && (
           <div>
-            <label className="label">Planlı zaman (GMT+3, opsiyonel)</label>
+            <label className="label">Planlı zaman (Europe/Istanbul, opsiyonel)</label>
             <div className="flex gap-2">
               <input
                 type="datetime-local"

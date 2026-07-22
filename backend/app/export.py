@@ -164,7 +164,7 @@ def report_to_pdf(report: Report, entries: list[Entry]) -> bytes:
         fontName=_BOLD_FONT, textColor=colors.white,
     )
 
-    # Oluşturulma zamanını yerel saate (Europe/Istanbul, GMT+3) çevir.
+    # v0.9.4: Oluşturulma zamanını Europe/Istanbul'a çevir.
     tz = ZoneInfo(_settings.scheduler_timezone)
     created_at = report.created_at
     if created_at.tzinfo is None:
@@ -174,7 +174,7 @@ def report_to_pdf(report: Report, entries: list[Entry]) -> bytes:
     flow = [Paragraph(_html_escape(report.title), h1)]
     flow.append(Paragraph(
         f"Durum: {report.status.value} &nbsp;|&nbsp; "
-        f"Oluşturuldu: {created_local:%Y-%m-%d %H:%M} (GMT+3)",
+        f"Oluşturuldu: {created_local:%Y-%m-%d %H:%M %Z}",
         small,
     ))
     flow.append(Spacer(1, 8))

@@ -57,11 +57,11 @@ export default function Reports() {
   const [editing, setEditing] = useState<Report | null>(null);
 
   // Son aşamada A/B/C hangi vardiya raporu oluşturulacağı seçilir.
-  // Varsayılan olarak geçerli saate göre (GMT+3) tahmin edilir.
+  // Varsayılan olarak geçerli saate göre (Europe/Istanbul) tahmin edilir.
   const [shiftTypeChoice, setShiftTypeChoice] = useState<ShiftType>(detectShiftType());
   const [toInput, setToInput] = useState('');
   const [ccInput, setCcInput] = useState('');
-  const [scheduleAt, setScheduleAt] = useState(''); // local datetime (GMT+3)
+  const [scheduleAt, setScheduleAt] = useState(''); // local datetime (Europe/Istanbul)
   const [subjectOverride, setSubjectOverride] = useState('');
 
   // Karar pop-up'ı için durum. "intent" — kullanıcı hangi generate akışını
@@ -126,11 +126,11 @@ export default function Reports() {
 
       if (options.schedule) {
         if (!scheduleAt) {
-          setMsg('Lütfen planlama zamanını seçin (GMT+3).');
+          setMsg('Lütfen planlama zamanını seçin (Europe/Istanbul).');
           setWorking(false);
           return;
         }
-        // Send naive local datetime; backend interprets it as Europe/Istanbul (GMT+3)
+        // Send naive local datetime; backend interprets it as Europe/Istanbul
         payload.scheduled_at = scheduleAt;
         payload.dispatch = false;
       } else {
@@ -141,7 +141,7 @@ export default function Reports() {
 
       if (options.schedule) {
         setMsg(
-          `Rapor #${r.data.id} ${scheduleAt} (GMT+3) zamanına planlandı.`,
+          `Rapor #${r.data.id} ${scheduleAt} (Europe/Istanbul) zamanına planlandı.`,
         );
       } else if (options.dispatch) {
         setMsg(
@@ -220,7 +220,7 @@ export default function Reports() {
                 {shifts.map((s) => (
                   <option key={s.id} value={s.id}>
                     #{s.id} · {SHIFT_TYPE_LABEL[s.shift_type]} ·{' '}
-                    {new Date(s.started_at).toLocaleString('tr-TR')} ({s.entry_count})
+                    {new Date(s.started_at).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })} ({s.entry_count})
                   </option>
                 ))}
               </select>
@@ -245,7 +245,7 @@ export default function Reports() {
                 ))}
               </div>
               <p className="text-xs text-gray-500 mt-1">
-                A: 07:30–15:30 · B: 15:30–23:30 · C: 23:30–07:30 (GMT+3). Rapor bu etiketle
+                A: 07:30–15:30 · B: 15:30–23:30 · C: 23:30–07:30 (Europe/Istanbul). Rapor bu etiketle
                 oluşturulur; gerekirse seçimi değiştirin.
               </p>
             </div>
@@ -291,7 +291,7 @@ export default function Reports() {
           </div>
 
           <div>
-            <label className="label">Zamanlama (GMT+3) — opsiyonel</label>
+            <label className="label">Zamanlama (Europe/Istanbul) — opsiyonel</label>
             <input
               type="datetime-local"
               className="input"
@@ -316,7 +316,7 @@ export default function Reports() {
               disabled={working || !scheduleAt}
               onClick={() => generateWithResolutionCheck({ dispatch: false, schedule: true })}
             >
-              Planla (GMT+3)
+              Planla
             </button>
             <button
               className="btn-primary"
@@ -368,13 +368,13 @@ export default function Reports() {
                     </span>
                   </td>
                   <td className="px-4 py-2 text-gray-500">
-                    {r.scheduled_at ? new Date(r.scheduled_at).toLocaleString('tr-TR') : '—'}
+                    {r.scheduled_at ? new Date(r.scheduled_at).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' }) : '—'}
                   </td>
                   <td className="px-4 py-2 text-gray-500">
-                    {r.dispatched_at ? new Date(r.dispatched_at).toLocaleString('tr-TR') : '—'}
+                    {r.dispatched_at ? new Date(r.dispatched_at).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' }) : '—'}
                   </td>
                   <td className="px-4 py-2 text-gray-500">
-                    {new Date(r.created_at).toLocaleString('tr-TR')}
+                    {new Date(r.created_at).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })}
                   </td>
                   <td className="px-4 py-2 text-right space-x-2 whitespace-nowrap">
                     {canGenerate && r.status === 'scheduled' && (
@@ -492,7 +492,7 @@ function ReportEditModal({
       const ccList = splitListInput(ccRecipients);
       payload.recipients = toList.length ? toList : null;
       payload.cc_recipients = ccList.length ? ccList : null;
-      // scheduledAt: '' -> null (planlamayı kaldır), dolu -> backend GMT+3 -> UTC
+      // scheduledAt: '' -> null (planlamayı kaldır), dolu -> backend Europe/Istanbul -> UTC
       payload.scheduled_at = scheduledAt || null;
 
       await api.patch(`/reports/${report.id}`, payload);
@@ -573,7 +573,7 @@ function ReportEditModal({
         </div>
 
         <div>
-          <label className="label">Planlama (GMT+3, opsiyonel)</label>
+          <label className="label">Planlama (Europe/Istanbul, opsiyonel)</label>
           <div className="flex gap-2">
             <input
               type="datetime-local"

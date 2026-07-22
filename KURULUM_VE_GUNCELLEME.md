@@ -634,4 +634,4 @@ docker system prune -f                # kullanılmayan imajları temizle
 | Frontend `502 Bad Gateway` | Backend başlamadı | `docker compose logs backend` — genelde DB bağlantı hatası |
 | `port is already allocated` | 8000 veya 8080 başka bir servis tarafından kullanılıyor | `docker compose.yml`'de port mapping'i değiştir (ör. `8001:8000`) |
 | Build sırasında `npm` 403 / timeout | Şirket proxy'si | `.npmrc`'de proxy ayarla veya offline build'le devret |
-| Saat dilimi yanlış | Sunucu UTC, planlamalar GMT+3 bekliyor | `SCHEDULER_TIMEZONE=Europe/Istanbul` (zaten varsayılan) — sunucu sistem saatini kontrol et |
+| Saat dilimi yanlış | Sunucu UTC, planlamalar Europe/Istanbul bekliyor | `SCHEDULER_TIMEZONE=Europe/Istanbul` (zaten varsayılan) + container TZ=Europe/Istanbul (v0.9.4'te docker-compose'a eklendi) |

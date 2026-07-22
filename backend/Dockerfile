@@ -2,13 +2,18 @@ FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    TZ=Europe/Istanbul
 
 WORKDIR /app
 
+# v0.9.4: tzdata (Europe/Istanbul için ZoneInfo desteği) + TZ env
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential libpq-dev curl \
     fonts-dejavu-core \
+    tzdata \
+    && ln -fs /usr/share/zoneinfo/Europe/Istanbul /etc/localtime \
+    && dpkg-reconfigure -f noninteractive tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./

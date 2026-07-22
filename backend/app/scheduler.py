@@ -6,7 +6,7 @@ Four jobs run concurrently:
      dispatches a report for the currently open shift at each shift change.
   2) Minute tick: scans for reports with status='scheduled' and
      scheduled_at <= now (UTC), and dispatches them. Lets supervisors schedule
-     individual reports for a specific GMT+3 time from the UI.
+     individual reports for a specific Europe/Istanbul time from the UI.
   3) Reminder tick (every REMINDER_TICK_SECONDS): scans for Entry rows whose
      occurs_at falls inside the next REMINDER_LEAD_MINUTES window and for which
      reminder_sent_at is still NULL. Sends a short Turkish heads-up e-mail to
@@ -171,12 +171,12 @@ async def reminder_tick():
             minutes_remaining = max(
                 0, int((e.occurs_at - now).total_seconds() // 60)
             )
-            subject = f"[Hatırlatma] {tur} — {occurs_local} (GMT+3)"
+            subject = f"[Hatırlatma] {tur} — {occurs_local}"
             text = (
                 f"Planlı iş hatırlatması\n"
                 f"========================\n\n"
                 f"Tür: {tur}\n"
-                f"Zaman: {occurs_local} (GMT+3) — yaklaşık {minutes_remaining} dk içinde\n\n"
+                f"Zaman: {occurs_local} (Europe/Istanbul) — yaklaşık {minutes_remaining} dk içinde\n\n"
                 f"Detay:\n{detay}\n\n"
                 f"— MSSP Handover\n"
             )
@@ -185,7 +185,7 @@ async def reminder_tick():
                 f"<h2 style='color:#1d4ed8;margin:0 0 8px 0'>Planlı İş Hatırlatması</h2>"
                 f"<p style='color:#374151;margin:0 0 12px 0'>"
                 f"<b>Tür:</b> {tur}<br>"
-                f"<b>Zaman:</b> {occurs_local} (GMT+3) — yaklaşık {minutes_remaining} dk içinde"
+                f"<b>Zaman:</b> {occurs_local} (Europe/Istanbul) — yaklaşık {minutes_remaining} dk içinde"
                 f"</p>"
                 f"<div style='padding:10px;border:1px solid #e5e7eb;"
                 f"border-radius:6px;background:#fef3c7;white-space:pre-wrap'>{detay}</div>"

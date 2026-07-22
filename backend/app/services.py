@@ -20,7 +20,7 @@ _settings = get_settings()
 
 
 def detect_shift_type(now_utc: Optional[datetime] = None) -> ShiftType:
-    """Aktif vardiyayı (A/B/C) yerel saate (Europe/Istanbul, GMT+3) göre algıla.
+    """Aktif vardiyayı (A/B/C) yerel saate (Europe/Istanbul) göre algıla.
 
     A: 07:30 - 15:30
     B: 15:30 - 23:30

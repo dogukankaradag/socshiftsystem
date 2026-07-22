@@ -19,7 +19,7 @@ settings = get_settings()
 
 
 def _to_utc(dt: datetime) -> datetime:
-    """Interpret naive datetimes as being in the configured scheduler_timezone (GMT+3),
+    """Interpret naive datetimes as being in the configured scheduler_timezone (Europe/Istanbul),
     then convert to UTC. Aware datetimes are converted directly."""
     if dt.tzinfo is None:
         tz = ZoneInfo(settings.scheduler_timezone)

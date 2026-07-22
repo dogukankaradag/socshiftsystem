@@ -30,7 +30,7 @@ function fmtLocal(iso: string): string {
   });
 }
 
-// "YYYY-MM-DDTHH:mm" (yerel, GMT+3) → UTC ISO
+// "YYYY-MM-DDTHH:mm" (yerel, Europe/Istanbul) → UTC ISO
 function localInputToUtcIso(v: string): string | null {
   if (!v) return null;
   const iso = v.length === 16 ? `${v}:00+03:00` : `${v}+03:00`;
@@ -347,7 +347,7 @@ export default function ResolveScheduledModal({
                                   }
                                 />
                                 <div className="text-xs text-gray-500 dark:text-slate-400 mt-1">
-                                  GMT+3 cinsinden seçin. Hatırlatma yeniden gönderilir.
+                                  Europe/Istanbul cinsinden seçin. Hatırlatma yeniden gönderilir.
                                 </div>
                               </span>
                             </label>

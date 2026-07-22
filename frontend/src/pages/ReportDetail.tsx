@@ -40,11 +40,11 @@ export default function ReportDetail() {
         </div>
         {report.scheduled_at && (
           <div>
-            Planlanan gönderim: {new Date(report.scheduled_at).toLocaleString('tr-TR')} (GMT+3)
+            Planlanan gönderim: {new Date(report.scheduled_at).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })} (Europe/Istanbul)
           </div>
         )}
         {report.dispatched_at && (
-          <div>Gönderildi: {new Date(report.dispatched_at).toLocaleString('tr-TR')}</div>
+          <div>Gönderildi: {new Date(report.dispatched_at).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })}</div>
         )}
         {report.recipients && <div>TO: {report.recipients}</div>}
         {report.cc_recipients && <div>CC: {report.cc_recipients}</div>}

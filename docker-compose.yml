@@ -3,6 +3,9 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
+      # v0.9.4: TZ for log timestamps (verilere dokunmaz, timestamptz UTC olarak saklanır)
+      TZ: Europe/Istanbul
+      PGTZ: Europe/Istanbul
       POSTGRES_USER: ${POSTGRES_USER:-shift}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-shift}
       POSTGRES_DB: ${POSTGRES_DB:-shift}
@@ -22,10 +25,13 @@ services:
       db:
         condition: service_healthy
     volumes:
-      # v0.9.0: Personnel/rotasyon config — host'ta gitignored,
-      # sadece container içine read-only mount edilir.
+      # v0.9.2: Personnel/rotasyon config — git ile takip edilir,
+      # container içine read-only mount edilir.
       - ./config:/app/config:ro
     environment:
+      # v0.9.4: TZ Europe/Istanbul — tüm datetime.now(), log timestamp'leri
+      # ve APScheduler bu zone'da çalışır.
+      TZ: Europe/Istanbul
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-shift}:${POSTGRES_PASSWORD:-shift}@db:5432/${POSTGRES_DB:-shift}
       JWT_SECRET: ${JWT_SECRET:-please-change-me-to-a-long-random-string}
       ENVIRONMENT: ${ENVIRONMENT:-production}
@@ -65,6 +71,8 @@ services:
     restart: unless-stopped
     depends_on:
       - backend
+    environment:
+      TZ: Europe/Istanbul
     ports:
       - "8080:80"
     networks: [shiftnet]

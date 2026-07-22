@@ -83,7 +83,7 @@ export const SHIFT_TYPE_LABEL: Record<ShiftType, string> = {
   c: 'C Vardiyası',
 };
 
-// Yerel saate göre (Europe/Istanbul, GMT+3) şu anki vardiyayı tahmin et.
+// Yerel saate göre (Europe/Istanbul) şu anki vardiyayı tahmin et.
 // A: 07:30-15:30, B: 15:30-23:30, C: 23:30-07:30
 export function detectShiftType(now: Date = new Date()): ShiftType {
   const tr = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Istanbul' }));

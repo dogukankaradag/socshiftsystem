@@ -15,7 +15,9 @@
   - Öğlen çift kısıtı: aynı gün iki on-call-only Ankara personeli
     eşleşemez (yük dengeleme).
   - Algoritma: greedy round-robin — en az atama almış kişiyi öncelikle seç.
-  - Manuel müdahale (modified_by_user_id NOT NULL) korunur.
+  - Manuel müdahale (modified_by_user_id NOT NULL) korunur — AMA Aylık
+    Vardiya'da o gün leave/off/B/C alan kişi için mevcut manuel/otomatik
+    dist/lunch kaydı otomatik silinir (çakışma temizliği, v0.9.3).
 """
 from __future__ import annotations
 from calendar import monthrange
@@ -243,6 +245,33 @@ def generate_month(
             "ilgili ayın çizelgesini Otomatik Üret yapın — şimdilik tüm personel "
             "havuzda kabul ediliyor."
         )
+
+    # v0.9.3: Aylık Vardiya çakışması temizliği.
+    # Aylık Vardiya'da o gün BLOCKING slotta (leave/off/B/C) olan bir kişi
+    # Dağıtıcı Listesi'nde aynı günde dist/lunch olarak duruyorsa (manuel
+    # dahil) kayıt burada silinir. Böylece kullanıcı Aylık Vardiya'ya izin
+    # girip Dağıtıcı'da "Otomatik Üret" bastığında çakışma sürmez —
+    # algoritma o boşluğu başka bir uygun kişiyle doldurur.
+    if busy_by_day:
+        conflicts = (
+            db.query(DailyDuty)
+            .filter(DailyDuty.day >= first_day)
+            .filter(DailyDuty.day <= last_day)
+            .all()
+        )
+        conflict_deleted = 0
+        for d in conflicts:
+            blocked_ids = busy_by_day.get(d.day, set())
+            if d.personnel_id in blocked_ids:
+                db.delete(d)
+                conflict_deleted += 1
+        if conflict_deleted:
+            db.commit()
+            result.warnings.append(
+                f"Aylık Vardiya çakışması: {conflict_deleted} dist/lunch kaydı "
+                "silindi (izin/off/B/C olan kişi-günleri). Boşluklar yeniden "
+                "atandı."
+            )
 
     # 4) Counter'lar (manuel korunan atamalar dahil)
     counts_dist: dict[int, int] = {p.id: 0 for p in personnel}

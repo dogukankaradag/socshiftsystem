@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     # Scheduler / reports
     # Default daily auto-dispatch crons (Europe/Istanbul). 07:00, 15:00, 23:00 = shift handovers.
     report_dispatch_cron: str = "0 7,15,23 * * *"
-    # Timezone all schedules are evaluated in. GMT+3 — no DST.
+    # Timezone all schedules are evaluated in. IANA tz name.
     scheduler_timezone: str = "Europe/Istanbul"
     default_mailing_list: str = "ops-team@example.com"
 

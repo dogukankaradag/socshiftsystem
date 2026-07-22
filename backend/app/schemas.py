@@ -169,7 +169,7 @@ class ReportGenerateRequest(BaseModel):
     cc_recipients: Optional[List[EmailStr]] = None
     # Dispatch mode:
     #   dispatch=True + scheduled_at=None -> send immediately
-    #   scheduled_at set -> schedule for later (GMT+3 local datetime accepted; naive = Europe/Istanbul)
+    #   scheduled_at set -> schedule for later (Europe/Istanbul local datetime accepted; naive = Europe/Istanbul)
     #   dispatch=False, scheduled_at=None -> draft
     dispatch: bool = False
     scheduled_at: Optional[datetime] = None

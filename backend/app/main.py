@@ -1,7 +1,11 @@
 """FastAPI application entrypoint."""
 from __future__ import annotations
 import logging
+import os
+import time as time_mod
 from contextlib import asynccontextmanager
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,12 +19,38 @@ from .routers import (
 from .scheduler import start_scheduler, stop_scheduler
 from .seed import seed_defaults
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-)
-log = logging.getLogger("shift-handover")
 settings = get_settings()
+
+# v0.9.4: Process-wide TZ. Container'da TZ=Europe/Istanbul zaten set, ama
+# ekstra güvence — datetime.now() (naive) ve time.strftime() bu zone'da olur.
+_TZ_NAME = settings.scheduler_timezone
+os.environ.setdefault("TZ", _TZ_NAME)
+try:
+    time_mod.tzset()  # POSIX only; Windows'ta yok, Linux container'da OK
+except AttributeError:
+    pass
+
+
+class _IstanbulFormatter(logging.Formatter):
+    """Log timestamp'lerini Europe/Istanbul olarak ve TZ suffix'i ile yaz."""
+    _tz = ZoneInfo(_TZ_NAME)
+
+    def formatTime(self, record, datefmt=None):
+        dt = datetime.fromtimestamp(record.created, tz=self._tz)
+        if datefmt:
+            return dt.strftime(datefmt)
+        return dt.strftime("%Y-%m-%d %H:%M:%S %z")
+
+
+_root = logging.getLogger()
+_root.setLevel(logging.INFO)
+_handler = logging.StreamHandler()
+_handler.setFormatter(_IstanbulFormatter(
+    fmt="%(asctime)s %(levelname)s %(name)s: %(message)s",
+))
+# Root'un mevcut handler'larını temizle, sadece bizimkini bırak (çift log önle)
+_root.handlers = [_handler]
+log = logging.getLogger("shift-handover")
 
 
 @asynccontextmanager
