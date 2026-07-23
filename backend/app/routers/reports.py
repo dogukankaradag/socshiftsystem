@@ -10,7 +10,9 @@ from ..auth import require_operator, require_supervisor
 from ..config import get_settings
 from ..database import get_db
 from ..export import report_to_pdf
-from ..models import Entry, Report, ReportStatus, Shift, User
+from pydantic import BaseModel
+
+from ..models import Entry, EntryType, Report, ReportStatus, Shift, User
 from ..schemas import ReportGenerateRequest, ReportOut, ReportUpdate
 from ..services import audit, dispatch_report, generate_report, resolve_recipients
 
@@ -103,14 +105,26 @@ async def generate(
             to_list, cc_list = resolve_recipients(db, shift)
         else:
             to_list, cc_list = to_override or [], cc_override or []
-        await dispatch_report(db, report, to_list, cc_list, actor=current)
+        await dispatch_report(
+            db, report, to_list, cc_list, actor=current,
+            keep_info_entry_ids=payload.keep_info_entry_ids,
+        )
 
     return report
 
 
+class DispatchRequest(BaseModel):
+    """v0.9.5: dispatch endpoint payload — kullanıcı info entry kararlarını iletir."""
+    keep_info_entry_ids: Optional[List[int]] = None
+
+
 @router.post("/{report_id}/dispatch", response_model=ReportOut)
-async def dispatch(report_id: int, db: Session = Depends(get_db),
-                   current: User = Depends(require_supervisor)):
+async def dispatch(
+    report_id: int,
+    payload: Optional[DispatchRequest] = None,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_supervisor),
+):
     report = db.query(Report).filter(Report.id == report_id).first()
     if not report:
         raise HTTPException(status_code=404, detail="Rapor bulunamadı")
@@ -119,7 +133,43 @@ async def dispatch(report_id: int, db: Session = Depends(get_db),
     if not to_list and not cc_list:
         shift = db.query(Shift).filter(Shift.id == report.shift_id).first()
         to_list, cc_list = resolve_recipients(db, shift) if shift else ([], [])
-    return await dispatch_report(db, report, to_list, cc_list, actor=current)
+    keep_ids = payload.keep_info_entry_ids if payload else None
+    return await dispatch_report(
+        db, report, to_list, cc_list, actor=current,
+        keep_info_entry_ids=keep_ids,
+    )
+
+
+class PendingInfoEntry(BaseModel):
+    id: int
+    title: Optional[str]
+    body: Optional[str]
+    created_at: datetime
+
+
+@router.get("/pending-info/{shift_id}", response_model=List[PendingInfoEntry])
+def list_pending_info(
+    shift_id: int,
+    db: Session = Depends(get_db),
+    _=Depends(require_operator),
+):
+    """v0.9.5: Bir shift'in henüz raporlanmamış (reported_at=NULL) Info
+    girişlerini döner. Dispatch modal'ında kullanıcıya sunulur —
+    kullanıcı hangilerinin bir sonraki rapora taşınacağına karar verir."""
+    rows = (
+        db.query(Entry)
+        .filter(Entry.shift_id == shift_id)
+        .filter(Entry.entry_type == EntryType.info)
+        .filter(Entry.reported_at.is_(None))
+        .order_by(Entry.created_at.asc())
+        .all()
+    )
+    return [
+        PendingInfoEntry(
+            id=r.id, title=r.title, body=r.body, created_at=r.created_at,
+        )
+        for r in rows
+    ]
 
 
 @router.patch("/{report_id}", response_model=ReportOut)

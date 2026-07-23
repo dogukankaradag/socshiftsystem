@@ -110,15 +110,24 @@ def generate_report(db: Session, shift: Shift, generated_by: Optional[User] = No
     3 gün sonra için girilen bir plan, araya giren her vardiya raporuna
     otomatik olarak taşınır ve operatöre hatırlatılır.
     """
-    # v0.8.16: "Arayanlar" (callers) rapor sonrası tek-seferlik — bir daha
-    # dahil edilmesin. reported_at NULL olanlar rapora girer; dispatch
-    # sonrası bu shift'in tüm callers'ları işaretlenir. Diğer türler her
-    # zaman dahil (reported_at ile ilgilenmez).
+    # v0.9.5: Tek-seferlik türler (dispatch sonrası bir sonraki rapora
+    # dahil edilmez). reported_at NULL olanlar rapora girer:
+    #   - callers, dhs, iys, important_work → dispatch sonrası otomatik işaretlenir
+    #   - info                              → dispatch modal'ında kullanıcı seçer
+    # Diğer türler (ör. l2_escalation, ddos_transfer) reported_at'tan bağımsız
+    # her zaman dahil (DDoS için ayrı ResolveScheduledModal akışı çalışır).
+    _reset_types = (
+        EntryType.callers,
+        EntryType.dhs,
+        EntryType.iys,
+        EntryType.important_work,
+        EntryType.info,
+    )
     entries: List[Entry] = (
         db.query(Entry)
         .filter(Entry.shift_id == shift.id)
         .filter(or_(
-            Entry.entry_type != EntryType.callers,
+            Entry.entry_type.notin_(_reset_types),
             Entry.reported_at.is_(None),
         ))
         .order_by(Entry.created_at.asc())
@@ -166,8 +175,16 @@ def generate_report(db: Session, shift: Shift, generated_by: Optional[User] = No
 async def dispatch_report(db: Session, report: Report,
                           to_recipients: list[str],
                           cc_recipients: Optional[list[str]] = None,
-                          actor: Optional[User] = None) -> Report:
-    """Email the report to TO + CC and update its status."""
+                          actor: Optional[User] = None,
+                          keep_info_entry_ids: Optional[list[int]] = None) -> Report:
+    """Email the report to TO + CC and update its status.
+
+    v0.9.5: `keep_info_entry_ids` is a list of Entry.id values (info type)
+    that the user explicitly wants to CARRY OVER to the next report. All
+    other info entries in this shift will be marked reported_at (won't
+    appear in next generate). If None, ALL info entries are cleared
+    (backward-compatible default).
+    """
     cc_recipients = cc_recipients or []
     if not to_recipients and not cc_recipients:
         report.status = ReportStatus.failed
@@ -191,22 +208,51 @@ async def dispatch_report(db: Session, report: Report,
         report.error_message = None
         audit(db, actor, "report.dispatched", "report", report.id,
               {"to": to_recipients, "cc": cc_recipients})
-        # v0.8.16: bu vardiyadaki henüz raporlanmamış tüm "Arayanlar"
-        # girişlerini işaretle → bir sonraki generate'de rapora dahil olmaz.
-        marked = (
+        # v0.9.5: Tek-seferlik türleri işaretle → bir sonraki generate'de
+        # rapora dahil olmaz. Veri silinmez, sadece reported_at set edilir.
+        auto_reset_types = (
+            EntryType.callers,
+            EntryType.dhs,
+            EntryType.iys,
+            EntryType.important_work,
+        )
+        auto_marked = (
             db.query(Entry)
             .filter(Entry.shift_id == report.shift_id)
-            .filter(Entry.entry_type == EntryType.callers)
+            .filter(Entry.entry_type.in_(auto_reset_types))
             .filter(Entry.reported_at.is_(None))
             .update(
                 {Entry.reported_at: report.dispatched_at},
                 synchronize_session=False,
             )
         )
-        if marked:
+        if auto_marked:
             log.info(
-                "Marked %d callers entries as reported for shift %s (report %s)",
-                marked, report.shift_id, report.id,
+                "Marked %d auto-reset entries (callers/dhs/iys/impwork) "
+                "as reported for shift %s (report %s)",
+                auto_marked, report.shift_id, report.id,
+            )
+
+        # v0.9.5: Info entries — kullanıcı seçimine göre işaretle.
+        # keep_info_entry_ids listesindekiler DOKUNULMAZ (bir sonrakine taşınır);
+        # diğer tüm reported_at=NULL info entry'leri işaretlenir.
+        keep_ids = set(keep_info_entry_ids or [])
+        info_query = (
+            db.query(Entry)
+            .filter(Entry.shift_id == report.shift_id)
+            .filter(Entry.entry_type == EntryType.info)
+            .filter(Entry.reported_at.is_(None))
+        )
+        if keep_ids:
+            info_query = info_query.filter(Entry.id.notin_(keep_ids))
+        info_marked = info_query.update(
+            {Entry.reported_at: report.dispatched_at},
+            synchronize_session=False,
+        )
+        if info_marked or keep_ids:
+            log.info(
+                "Info entries: marked %d, kept %d for shift %s (report %s)",
+                info_marked, len(keep_ids), report.shift_id, report.id,
             )
     except Exception as exc:  # noqa: BLE001
         log.exception("Dispatch failed for report %s", report.id)

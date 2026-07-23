@@ -1,4 +1,4 @@
-# MSSP Handover — v0.9.4
+# MSSP Handover — v0.9.5
 
 NOC / operasyon ekipleri için yapılandırılmış vardiya devir ve raporlama
 platformu. Serbest format e-posta devir alışkanlığını; aranabilir,

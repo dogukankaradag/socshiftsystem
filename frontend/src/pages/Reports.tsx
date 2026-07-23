@@ -21,6 +21,14 @@ import ResolveScheduledModal from '../components/ResolveScheduledModal';
 // tüm kararlar verildikten sonra orijinal aksiyonu çağırır.
 type GenerateOpts = { dispatch: boolean; schedule: boolean };
 
+// v0.9.5: Pre-dispatch Info karar modalı için backend response tipi
+interface PendingInfoEntry {
+  id: number;
+  title: string | null;
+  body: string | null;
+  created_at: string;
+}
+
 function splitListInput(v: string): string[] {
   return v
     .split(/[,;\s]+/)
@@ -71,6 +79,13 @@ export default function Reports() {
   const [resolveOpen, setResolveOpen] = useState(false);
   const [pendingIntent, setPendingIntent] = useState<GenerateOpts | null>(null);
 
+  // v0.9.5: Info entries için pre-dispatch karar modalı.
+  const [infoDecisionOpen, setInfoDecisionOpen] = useState(false);
+  const [pendingInfoEntries, setPendingInfoEntries] = useState<PendingInfoEntry[]>([]);
+  const [infoIntent, setInfoIntent] = useState<GenerateOpts | null>(null);
+  const [dispatchInfoOpen, setDispatchInfoOpen] = useState(false);
+  const [dispatchInfoReportId, setDispatchInfoReportId] = useState<number | null>(null);
+
   async function load() {
     const [s, r] = await Promise.all([
       api.get('/shifts', { params: { limit: 20 } }),
@@ -105,10 +120,44 @@ export default function Reports() {
     } catch {
       /* Sorgu hata verirse normal akışa düş — kullanıcıyı bloklamayalım */
     }
+    // v0.9.5: Dispatch akışında Info entry kararı sorulur.
+    if (options.dispatch && !options.schedule) {
+      try {
+        const r = await api.get<PendingInfoEntry[]>(
+          `/reports/pending-info/${selectedShift}`,
+        );
+        if (r.data.length > 0) {
+          setPendingInfoEntries(r.data);
+          setInfoIntent(options);
+          setInfoDecisionOpen(true);
+          return;
+        }
+      } catch {
+        /* Info check hata verirse normal akışa düş */
+      }
+    }
     await generate(options);
   }
 
-  async function generate(options: { dispatch: boolean; schedule: boolean }) {
+  // v0.9.5: Info karar modalından "Devam et" sonrası çağrılır.
+  async function afterInfoDecision(keepIds: number[]) {
+    setInfoDecisionOpen(false);
+    if (infoIntent) {
+      await generate(infoIntent, keepIds);
+      setInfoIntent(null);
+    } else if (dispatchInfoReportId !== null) {
+      const id = dispatchInfoReportId;
+      setDispatchInfoReportId(null);
+      setDispatchInfoOpen(false);
+      await performDispatch(id, keepIds);
+    }
+    setPendingInfoEntries([]);
+  }
+
+  async function generate(
+    options: { dispatch: boolean; schedule: boolean },
+    keepInfoEntryIds?: number[],
+  ) {
     if (!selectedShift) return;
     setWorking(true);
     setMsg(null);
@@ -137,6 +186,11 @@ export default function Reports() {
         payload.dispatch = options.dispatch;
       }
 
+      // v0.9.5: kullanıcının bir sonraki rapora taşımak istediği Info entry ID'leri
+      if (options.dispatch && keepInfoEntryIds !== undefined) {
+        payload.keep_info_entry_ids = keepInfoEntryIds;
+      }
+
       const r = await api.post('/reports/generate', payload);
 
       if (options.schedule) {
@@ -161,9 +215,35 @@ export default function Reports() {
   }
 
   async function dispatchExisting(id: number) {
+    // v0.9.5: Draft rapor gönderilirken Info karar modalı — hangi Info entry
+    // bir sonraki rapora taşınsın?
+    const report = reports.find((r) => r.id === id);
+    if (report) {
+      try {
+        const r = await api.get<PendingInfoEntry[]>(
+          `/reports/pending-info/${report.shift_id}`,
+        );
+        if (r.data.length > 0) {
+          setPendingInfoEntries(r.data);
+          setDispatchInfoReportId(id);
+          setDispatchInfoOpen(true);
+          return;
+        }
+      } catch {
+        /* Info check hata verirse normal akışa düş */
+      }
+    }
+    await performDispatch(id, undefined);
+  }
+
+  async function performDispatch(id: number, keepInfoEntryIds?: number[]) {
     setWorking(true);
     try {
-      await api.post(`/reports/${id}/dispatch`);
+      const body: any = {};
+      if (keepInfoEntryIds !== undefined) {
+        body.keep_info_entry_ids = keepInfoEntryIds;
+      }
+      await api.post(`/reports/${id}/dispatch`, body);
       load();
     } finally {
       setWorking(false);
@@ -456,6 +536,112 @@ export default function Reports() {
           }}
         />
       )}
+
+      {/* v0.9.5: Info karar modalı — hangi Info entry'leri bir sonraki rapora taşınacak */}
+      {(infoDecisionOpen || dispatchInfoOpen) && (
+        <InfoDecisionModal
+          entries={pendingInfoEntries}
+          onCancel={() => {
+            setInfoDecisionOpen(false);
+            setDispatchInfoOpen(false);
+            setPendingInfoEntries([]);
+            setInfoIntent(null);
+            setDispatchInfoReportId(null);
+          }}
+          onConfirm={(keepIds) => afterInfoDecision(keepIds)}
+        />
+      )}
+    </div>
+  );
+}
+
+// v0.9.5: Info entry karar modalı — kullanıcı her Info için "sil" veya
+// "bir sonraki rapora taşı" seçer.
+function InfoDecisionModal({
+  entries,
+  onCancel,
+  onConfirm,
+}: {
+  entries: PendingInfoEntry[];
+  onCancel: () => void;
+  onConfirm: (keepIds: number[]) => void;
+}) {
+  // Varsayılan olarak hiçbiri işaretli değil (hepsi temizlenir).
+  const [keepIds, setKeepIds] = useState<Set<number>>(new Set());
+  function toggle(id: number) {
+    setKeepIds((prev) => {
+      const s = new Set(prev);
+      if (s.has(id)) s.delete(id);
+      else s.add(id);
+      return s;
+    });
+  }
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl max-w-2xl w-full max-h-[85vh] overflow-y-auto">
+        <div className="px-5 py-4 border-b border-gray-200 dark:border-slate-700">
+          <h2 className="text-lg font-semibold text-gray-800 dark:text-slate-100">
+            Bilgi girişleri için karar
+          </h2>
+          <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">
+            Bu vardiyada <b>{entries.length}</b> bilgi girişi var. Rapor gönderildikten
+            sonra bu girişler bir sonraki rapora <b>otomatik dahil edilmez</b>. Hangi
+            girişlerin bir sonraki rapora <b>taşınmasını istiyorsanız</b> işaretleyin.
+          </p>
+        </div>
+        <ul className="divide-y divide-gray-100 dark:divide-slate-700">
+          {entries.map((e) => (
+            <li key={e.id} className="px-5 py-3">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={keepIds.has(e.id)}
+                  onChange={() => toggle(e.id)}
+                />
+                <div className="flex-1 min-w-0">
+                  {e.title && (
+                    <div className="font-medium text-gray-800 dark:text-slate-100 text-sm">
+                      {e.title}
+                    </div>
+                  )}
+                  {e.body && (
+                    <div className="text-sm text-gray-600 dark:text-slate-300 whitespace-pre-wrap">
+                      {e.body}
+                    </div>
+                  )}
+                  <div className="text-xs text-gray-400 dark:text-slate-500 mt-1">
+                    Oluşturuldu: {new Date(e.created_at).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })}
+                  </div>
+                </div>
+              </label>
+            </li>
+          ))}
+        </ul>
+        <div className="px-5 py-3 border-t border-gray-200 dark:border-slate-700 flex items-center justify-between">
+          <div className="text-xs text-gray-500 dark:text-slate-400">
+            {keepIds.size === 0
+              ? 'Hepsi silinecek (bir sonraki rapora dahil olmayacak).'
+              : `${keepIds.size} adet giriş bir sonraki rapora taşınacak.`}
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="btn-ghost"
+              onClick={onCancel}
+            >
+              Vazgeç
+            </button>
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => onConfirm(Array.from(keepIds))}
+            >
+              Devam et ve gönder
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

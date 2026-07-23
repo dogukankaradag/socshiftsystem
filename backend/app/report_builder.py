@@ -283,7 +283,8 @@ def build_report(shift: Shift, entries: List[Entry], ai: AIResult,
     """Return (title, summary, markdown, html). All strings are Turkish."""
     upcoming = upcoming or []
     tz_label = settings.scheduler_timezone
-    now_local = datetime.now(timezone.utc).astimezone(ZoneInfo(tz_label)).strftime("%Y-%m-%d %H:%M")
+    tz = ZoneInfo(tz_label)
+    now_local = datetime.now(timezone.utc).astimezone(tz).strftime("%Y-%m-%d %H:%M")
     shift_start = _local(shift.started_at)
     end = _local(shift.ended_at) if shift.ended_at else "devam ediyor"
     shift_label = SHIFT_TYPE_LABEL_TR.get(shift.shift_type.value, shift.shift_type.value)
@@ -292,10 +293,17 @@ def build_report(shift: Shift, entries: List[Entry], ai: AIResult,
     totals_numeric = _numeric_totals(entries)
     totals_dict = _numeric_totals_dict(entries)  # HTML şablon için
 
+    # v0.9.5: Rapor başlığında shift'in başladığı tarih Europe/Istanbul
+    # cinsinden dd.mm.yyyy formatında görünsün. Örn: "A Vardiyası 22.07.2026"
+    started = shift.started_at
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    shift_date_dmy = started.astimezone(tz).strftime("%d.%m.%Y")
+
     if subject_override and subject_override.strip():
         title = subject_override.strip()
     else:
-        title = f"{DEFAULT_SUBJECT_PREFIX} — {shift_label} ({shift_start[:10]})"
+        title = f"{DEFAULT_SUBJECT_PREFIX} - {shift_label} {shift_date_dmy}"
 
     md = _MD_TEMPLATE.render(
         title=title, shift_label=shift_label,

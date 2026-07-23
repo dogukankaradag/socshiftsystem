@@ -173,6 +173,11 @@ class ReportGenerateRequest(BaseModel):
     #   dispatch=False, scheduled_at=None -> draft
     dispatch: bool = False
     scheduled_at: Optional[datetime] = None
+    # v0.9.5: Kullanıcı seçimine göre bir sonraki rapora taşınacak Info entry ID'leri.
+    # Bu listede OLMAYAN info entry'leri dispatch anında reported_at ile işaretlenir
+    # ve bir sonraki generate'e dahil edilmez. None ise TÜM info entry'leri
+    # işaretlenir (varsayılan sıfırlama).
+    keep_info_entry_ids: Optional[List[int]] = None
 
 
 class ReportUpdate(BaseModel):
