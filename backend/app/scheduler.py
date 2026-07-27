@@ -18,7 +18,7 @@ Four jobs run concurrently:
 from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -32,7 +32,19 @@ from .services import dispatch_report, generate_report, resolve_recipients
 
 log = logging.getLogger(__name__)
 settings = get_settings()
-scheduler = AsyncIOScheduler(timezone=settings.scheduler_timezone)
+
+# v0.9.6: Europe/Istanbul sabit +03:00 fallback
+_ISTANBUL_FIXED = timezone(timedelta(hours=3), name="Europe/Istanbul")
+
+
+def _local_tz():
+    try:
+        return ZoneInfo(settings.scheduler_timezone)
+    except (ZoneInfoNotFoundError, Exception):
+        return _ISTANBUL_FIXED
+
+
+scheduler = AsyncIOScheduler(timezone=_local_tz())
 
 
 async def auto_dispatch_job():
@@ -98,7 +110,7 @@ async def reminder_tick():
     """
     now = datetime.now(timezone.utc)
     window_end = now + timedelta(minutes=settings.reminder_lead_minutes)
-    tz = ZoneInfo(settings.scheduler_timezone)
+    tz = _local_tz()
 
     db = SessionLocal()
     try:

@@ -78,6 +78,42 @@ export default function Dashboard() {
   // oluştur" linkinden açıldı (kararlar bitince Reports sayfasına yönlendir).
   const [resolveOpen, setResolveOpen] = useState<null | 'banner' | 'report'>(null);
 
+  // v0.9.7: Tüm geçmiş girişlerde arama + yönetim
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchType, setSearchType] = useState<EntryType | ''>('');
+  const [searchResults, setSearchResults] = useState<Entry[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchLoaded, setSearchLoaded] = useState(false);
+
+  // Debounced search — user tuşa basmayı bırakınca 300ms sonra fetch
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      loadSearch();
+    }, 300);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery, searchType]);
+
+  async function loadSearch() {
+    setSearchLoading(true);
+    try {
+      const params: Record<string, any> = {
+        limit: 50,
+        include_duplicates: true,
+        hide_past_scheduled: false,
+      };
+      if (searchQuery.trim()) params.q = searchQuery.trim();
+      if (searchType) params.entry_type = searchType;
+      const r = await api.get<Entry[]>('/entries', { params });
+      setSearchResults(r.data);
+      setSearchLoaded(true);
+    } catch {
+      /* sessizce yut - search başarısızlığı sayfayı bozmasın */
+    } finally {
+      setSearchLoading(false);
+    }
+  }
+
   async function load() {
     setLoading(true);
     setError(null);
@@ -133,6 +169,8 @@ export default function Dashboard() {
     try {
       await api.delete(`/entries/${id}`);
       await load();
+      // v0.9.7: arama sonuçlarını da tazele
+      if (searchLoaded) await loadSearch();
     } catch (err: any) {
       alert(err?.response?.data?.detail || 'Silme başarısız');
     } finally {
@@ -321,6 +359,104 @@ export default function Dashboard() {
         )}
       </div>
 
+      {/* v0.9.7: Tüm geçmiş girişler — arama + edit/delete */}
+      <div className="card">
+        <div className="flex items-start justify-between mb-3 gap-3 flex-wrap">
+          <div>
+            <h2 className="font-semibold text-gray-900 dark:text-slate-100">Tüm Girişler — Arama</h2>
+            <p className="text-xs text-gray-500 dark:text-slate-400">
+              Bugüne kadarki tüm girişler burada aranabilir. Başlık veya içerik
+              üzerinden arama; her satırda düzenle/sil butonları mevcut.
+            </p>
+          </div>
+        </div>
+        <div className="flex gap-2 mb-3 flex-wrap">
+          <input
+            type="text"
+            className="input flex-1 min-w-[220px]"
+            placeholder="Ara: başlık veya içerik..."
+            value={searchQuery}
+            onChange={(ev) => setSearchQuery(ev.target.value)}
+          />
+          <select
+            className="input"
+            value={searchType}
+            onChange={(ev) => setSearchType(ev.target.value as EntryType | '')}
+          >
+            <option value="">Tüm türler</option>
+            {(Object.keys(ENTRY_TYPE_LABEL) as EntryType[]).map((t) => (
+              <option key={t} value={t}>{ENTRY_TYPE_LABEL[t]}</option>
+            ))}
+          </select>
+        </div>
+        {searchLoading ? (
+          <div className="text-sm text-gray-500 dark:text-slate-400">Aranıyor…</div>
+        ) : searchResults.length === 0 ? (
+          <div className="text-sm text-gray-500 dark:text-slate-400">
+            {searchQuery || searchType ? 'Sonuç bulunamadı.' : 'Herhangi bir arama yapmadınız — kutuya yazın veya tür seçin.'}
+          </div>
+        ) : (
+          <>
+            <div className="text-xs text-gray-500 dark:text-slate-400 mb-2">
+              {searchResults.length} sonuç (en son 50 kayıt gösterilir).
+            </div>
+            <ul className="divide-y divide-gray-100 dark:divide-slate-700 max-h-[520px] overflow-y-auto">
+              {searchResults.map((e) => (
+                <li key={e.id} className="py-3 flex gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs uppercase text-gray-500 dark:text-slate-400">
+                        {ENTRY_TYPE_LABEL[e.entry_type]}
+                      </span>
+                      <span className="text-xs text-gray-400 dark:text-slate-500">
+                        Vardiya #{e.shift_id}
+                      </span>
+                      {e.occurs_at && (
+                        <span className="text-xs font-semibold text-blue-700 bg-blue-50 rounded px-2 py-0.5 dark:text-brand-400 dark:bg-slate-700">
+                          Planlı: {fmtLocal(e.occurs_at)}
+                        </span>
+                      )}
+                      {e.source && (
+                        <span className="text-xs text-gray-500 bg-gray-100 rounded px-1.5 py-0.5 dark:text-slate-300 dark:bg-slate-700">
+                          {e.source}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-sm text-gray-700 dark:text-slate-200 whitespace-pre-wrap line-clamp-3">
+                      {entryDisplayBody(e)}
+                    </div>
+                    <div className="text-xs text-gray-400 dark:text-slate-500 mt-1">
+                      {e.author_name || `#${e.author_id}`} ·{' '}
+                      {new Date(e.created_at).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })}
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1 shrink-0 items-end">
+                    {canEdit(e) && (
+                      <button
+                        className="text-xs text-gray-600 hover:text-brand-700 dark:text-slate-300 dark:hover:text-brand-400"
+                        onClick={() => setEditing(e)}
+                        disabled={busyId === e.id}
+                      >
+                        Düzenle
+                      </button>
+                    )}
+                    {canModifyAny && (
+                      <button
+                        className="text-xs text-red-600 hover:underline dark:text-red-400"
+                        onClick={() => deleteEntry(e.id)}
+                        disabled={busyId === e.id}
+                      >
+                        Sil
+                      </button>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </div>
+
       {editing && (
         <EntryEditModal
           entry={editing}
@@ -328,6 +464,8 @@ export default function Dashboard() {
           onSaved={() => {
             setEditing(null);
             load();
+            // v0.9.7: edit sonrası arama sonuçlarını da tazele
+            if (searchLoaded) loadSearch();
           }}
         />
       )}

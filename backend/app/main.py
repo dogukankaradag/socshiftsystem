@@ -90,6 +90,43 @@ def health():
     return {"status": "ok", "app": settings.app_name, "env": settings.environment}
 
 
+@app.get("/api/tz-debug", tags=["system"])
+def tz_debug():
+    """v0.9.6: Sunucudaki gerçek timezone davranışını göster.
+
+    Sorun olduğunda bu endpoint'e bakarak container gerçekten Europe/Istanbul
+    kullanıyor mu, ZoneInfo çalışıyor mu teyit ederiz.
+    """
+    import os
+    from datetime import timedelta as _td
+    from zoneinfo import ZoneInfoNotFoundError as _ZINF
+
+    result: dict = {
+        "env_TZ": os.environ.get("TZ"),
+        "settings_scheduler_timezone": settings.scheduler_timezone,
+        "now_utc": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        tz = ZoneInfo(settings.scheduler_timezone)
+        result["zoneinfo_ok"] = True
+        result["now_local"] = datetime.now(timezone.utc).astimezone(tz).isoformat()
+    except (_ZINF, Exception) as exc:
+        result["zoneinfo_ok"] = False
+        result["zoneinfo_error"] = str(exc)
+        result["fallback_offset"] = "+03:00"
+        result["now_local_fallback"] = (
+            datetime.now(timezone.utc)
+            .astimezone(timezone(_td(hours=3)))
+            .isoformat()
+        )
+    # Ekstra: sistem localtime linki
+    try:
+        result["etc_localtime"] = os.readlink("/etc/localtime")
+    except OSError:
+        result["etc_localtime"] = None
+    return result
+
+
 # Register routers
 prefix = settings.api_prefix
 app.include_router(auth.router, prefix=prefix)

@@ -16,9 +16,12 @@ import csv
 import io
 import logging
 import os
-from datetime import timezone
+from datetime import timedelta, timezone
 from typing import Iterable
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+# v0.9.6: Europe/Istanbul sabit +03:00 fallback (ZoneInfo başarısız olursa)
+_ISTANBUL_FIXED = timezone(timedelta(hours=3), name="Europe/Istanbul")
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -164,8 +167,11 @@ def report_to_pdf(report: Report, entries: list[Entry]) -> bytes:
         fontName=_BOLD_FONT, textColor=colors.white,
     )
 
-    # v0.9.4: Oluşturulma zamanını Europe/Istanbul'a çevir.
-    tz = ZoneInfo(_settings.scheduler_timezone)
+    # v0.9.6: Oluşturulma zamanını Europe/Istanbul'a çevir (bulletproof).
+    try:
+        tz = ZoneInfo(_settings.scheduler_timezone)
+    except (ZoneInfoNotFoundError, Exception):
+        tz = _ISTANBUL_FIXED
     created_at = report.created_at
     if created_at.tzinfo is None:
         created_at = created_at.replace(tzinfo=timezone.utc)

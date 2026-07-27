@@ -1,14 +1,12 @@
 """Build Markdown / HTML handover reports from shift entries (Turkish).
 
-v0.4: Priority kaldırıldı; rapor içeriği tür bazlı gruplama ve
-"Yaklaşan Planlı İşler" bölümü üzerinden şekilleniyor. Varsayılan başlık
-"MSSP Vardiya Raporu — {A/B/C Vardiyası} ({tarih})"; operatör isterse
-UI'dan konu alanını ezebilir.
+Varsayılan başlık: "MSSP Vardiya Raporu - {A/B/C Vardiyası}" (v0.9.6 itibariyle
+tarih başlıktan çıkarıldı — kullanıcı isteği). Operatör UI'dan override edebilir.
 """
 from __future__ import annotations
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from jinja2 import Template
 
@@ -17,6 +15,19 @@ from .config import get_settings
 from .models import Entry, EntryType, NUMERIC_ENTRY_TYPES, Shift
 
 settings = get_settings()
+
+# v0.9.6: Europe/Istanbul sabit +03:00 (DST yok). ZoneInfo başarısız olursa
+# fallback olarak bu sabit offset kullanılır. Böylece container'da tzdata
+# eksik olsa bile occurs_at rapor render'ı hep doğru saatte gösterilir.
+_ISTANBUL_FIXED = timezone(timedelta(hours=3), name="Europe/Istanbul")
+
+
+def _tz() -> timezone:
+    """Konfigüre edilmiş timezone'u döner; ZoneInfo yoksa +03:00 sabit fallback."""
+    try:
+        return ZoneInfo(settings.scheduler_timezone)
+    except (ZoneInfoNotFoundError, Exception):
+        return _ISTANBUL_FIXED
 
 # Rapor içinde tür bazlı gruplama sırası — en kritik/gözlem türleri en üstte.
 TYPE_ORDER: List[EntryType] = [
@@ -264,17 +275,22 @@ def _numeric_totals_dict(entries: List[Entry]) -> dict:
 
 
 def _local(dt: datetime) -> str:
-    tz = ZoneInfo(settings.scheduler_timezone)
+    """UTC datetime → Europe/Istanbul (+03:00) 'YYYY-MM-DD HH:MM' formatında.
+
+    v0.9.6: ZoneInfo başarısız olursa bile UTC+3 fixed offset ile çevirir —
+    bu sayede container'da tzdata eksik olsa dahi kullanıcının girdiği saat
+    doğru gösterilir.
+    """
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(tz).strftime("%Y-%m-%d %H:%M")
+    return dt.astimezone(_tz()).strftime("%Y-%m-%d %H:%M")
 
 
 def _local_short(dt: datetime) -> str:
-    tz = ZoneInfo(settings.scheduler_timezone)
+    """UTC datetime → Europe/Istanbul (+03:00) 'dd.mm HH:MM' formatında."""
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(tz).strftime("%d.%m %H:%M")
+    return dt.astimezone(_tz()).strftime("%d.%m %H:%M")
 
 
 def build_report(shift: Shift, entries: List[Entry], ai: AIResult,
@@ -283,7 +299,8 @@ def build_report(shift: Shift, entries: List[Entry], ai: AIResult,
     """Return (title, summary, markdown, html). All strings are Turkish."""
     upcoming = upcoming or []
     tz_label = settings.scheduler_timezone
-    tz = ZoneInfo(tz_label)
+    # v0.9.6: bulletproof tz — ZoneInfo fail olursa +03:00 sabit fallback
+    tz = _tz()
     now_local = datetime.now(timezone.utc).astimezone(tz).strftime("%Y-%m-%d %H:%M")
     shift_start = _local(shift.started_at)
     end = _local(shift.ended_at) if shift.ended_at else "devam ediyor"
@@ -293,17 +310,12 @@ def build_report(shift: Shift, entries: List[Entry], ai: AIResult,
     totals_numeric = _numeric_totals(entries)
     totals_dict = _numeric_totals_dict(entries)  # HTML şablon için
 
-    # v0.9.5: Rapor başlığında shift'in başladığı tarih Europe/Istanbul
-    # cinsinden dd.mm.yyyy formatında görünsün. Örn: "A Vardiyası 22.07.2026"
-    started = shift.started_at
-    if started.tzinfo is None:
-        started = started.replace(tzinfo=timezone.utc)
-    shift_date_dmy = started.astimezone(tz).strftime("%d.%m.%Y")
-
+    # v0.9.6: Kullanıcı isteği — başlıkta artık tarih GÖRÜNMEZ, sadece
+    # "MSSP Vardiya Raporu - A Vardiyası" formatı.
     if subject_override and subject_override.strip():
         title = subject_override.strip()
     else:
-        title = f"{DEFAULT_SUBJECT_PREFIX} - {shift_label} {shift_date_dmy}"
+        title = f"{DEFAULT_SUBJECT_PREFIX} - {shift_label}"
 
     md = _MD_TEMPLATE.render(
         title=title, shift_label=shift_label,
