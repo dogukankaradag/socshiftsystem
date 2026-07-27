@@ -22,11 +22,17 @@ _settings = get_settings()
 def detect_shift_type(now_utc: Optional[datetime] = None) -> ShiftType:
     """Aktif vardiyayı (A/B/C) yerel saate (Europe/Istanbul) göre algıla.
 
+    v0.9.9: env'den bağımsız — HARDCODED Europe/Istanbul.
+
     A: 07:30 - 15:30
     B: 15:30 - 23:30
     C: 23:30 - 07:30 (gece, bir sonraki güne sarar)
     """
-    tz = ZoneInfo(_settings.scheduler_timezone)
+    from datetime import timedelta as _td
+    try:
+        tz = ZoneInfo("Europe/Istanbul")
+    except Exception:
+        tz = timezone(_td(hours=3), name="Europe/Istanbul")
     if now_utc is None:
         now_utc = datetime.now(timezone.utc)
     elif now_utc.tzinfo is None:

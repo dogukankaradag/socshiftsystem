@@ -33,13 +33,14 @@ from .services import dispatch_report, generate_report, resolve_recipients
 log = logging.getLogger(__name__)
 settings = get_settings()
 
-# v0.9.6: Europe/Istanbul sabit +03:00 fallback
+# v0.9.9: Reminder maili + APScheduler için HARDCODED Europe/Istanbul.
+# .env'de SCHEDULER_TIMEZONE=UTC olsa bile hatırlatma saati Türkiye saati.
 _ISTANBUL_FIXED = timezone(timedelta(hours=3), name="Europe/Istanbul")
 
 
 def _local_tz():
     try:
-        return ZoneInfo(settings.scheduler_timezone)
+        return ZoneInfo("Europe/Istanbul")
     except (ZoneInfoNotFoundError, Exception):
         return _ISTANBUL_FIXED
 

@@ -16,16 +16,20 @@ from .models import Entry, EntryType, NUMERIC_ENTRY_TYPES, Shift
 
 settings = get_settings()
 
-# v0.9.6: Europe/Istanbul sabit +03:00 (DST yok). ZoneInfo başarısız olursa
-# fallback olarak bu sabit offset kullanılır. Böylece container'da tzdata
-# eksik olsa bile occurs_at rapor render'ı hep doğru saatte gösterilir.
+# v0.9.9: HARDCODED Europe/Istanbul — env'den (SCHEDULER_TIMEZONE) BAĞIMSIZ.
+# Rapor render'ı her koşulda +03:00 gösterir. Kullanıcı isteği: giriş verisi
+# ile rapor verisi birebir uyuşmalı (Panel'de 17:45 gördüğünü raporda da
+# 17:45 görsün). settings.scheduler_timezone başka bir değer olursa bile
+# (ör. UTC), rapor render'ı bunu YOK sayar.
 _ISTANBUL_FIXED = timezone(timedelta(hours=3), name="Europe/Istanbul")
+_ISTANBUL_LABEL = "Europe/Istanbul"
 
 
-def _tz() -> timezone:
-    """Konfigüre edilmiş timezone'u döner; ZoneInfo yoksa +03:00 sabit fallback."""
+def _tz():
+    """Rapor render'ı için timezone. Önce ZoneInfo('Europe/Istanbul'), yoksa
+    +03:00 sabit fallback. settings.scheduler_timezone'a BAKMAZ."""
     try:
-        return ZoneInfo(settings.scheduler_timezone)
+        return ZoneInfo(_ISTANBUL_LABEL)
     except (ZoneInfoNotFoundError, Exception):
         return _ISTANBUL_FIXED
 
@@ -298,8 +302,8 @@ def build_report(shift: Shift, entries: List[Entry], ai: AIResult,
                  subject_override: Optional[str] = None) -> tuple[str, str, str, str]:
     """Return (title, summary, markdown, html). All strings are Turkish."""
     upcoming = upcoming or []
-    tz_label = settings.scheduler_timezone
-    # v0.9.6: bulletproof tz — ZoneInfo fail olursa +03:00 sabit fallback
+    # v0.9.9: env-independent — rapor içeriği HER ZAMAN Europe/Istanbul
+    tz_label = _ISTANBUL_LABEL
     tz = _tz()
     now_local = datetime.now(timezone.utc).astimezone(tz).strftime("%Y-%m-%d %H:%M")
     shift_start = _local(shift.started_at)

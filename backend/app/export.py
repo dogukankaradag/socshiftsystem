@@ -167,9 +167,10 @@ def report_to_pdf(report: Report, entries: list[Entry]) -> bytes:
         fontName=_BOLD_FONT, textColor=colors.white,
     )
 
-    # v0.9.6: Oluşturulma zamanını Europe/Istanbul'a çevir (bulletproof).
+    # v0.9.9: HARDCODED Europe/Istanbul — env'e bakma. PDF footer'ı da
+    # her koşulda Türkiye saatinde olsun.
     try:
-        tz = ZoneInfo(_settings.scheduler_timezone)
+        tz = ZoneInfo("Europe/Istanbul")
     except (ZoneInfoNotFoundError, Exception):
         tz = _ISTANBUL_FIXED
     created_at = report.created_at
