@@ -10,7 +10,10 @@ from sqlalchemy.orm import Session, joinedload
 from ..auth import require_operator
 from ..database import get_db
 from ..export import entries_to_csv
-from ..models import Entry, EntryType, NUMERIC_ENTRY_TYPES, Shift, User
+from ..models import (
+    CustomerContact, CustomerOrg, Entry, EntryType, NUMERIC_ENTRY_TYPES,
+    Shift, User,
+)
 from ..schemas import EntryCreate, EntryOut, EntryUpdate
 from ..services import audit, get_or_create_open_shift
 
@@ -29,6 +32,63 @@ def _ensure_utc(dt: Optional[datetime]) -> Optional[datetime]:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc)
+
+
+def _norm(s: Optional[str]) -> str:
+    return (s or "").strip()
+
+
+def _upsert_customer(
+    db: Session,
+    org_name: Optional[str],
+    contact_name: Optional[str],
+    contact_phone: Optional[str],
+) -> None:
+    """v0.9.8: Arayanlar girişinde İrtibat Listesi'ne otomatik ekleme.
+
+    - Aynı isimli kurum yoksa oluşturur (case-insensitive match)
+    - Aynı (org, contact_name) yoksa contact oluşturur; varsa ve phone
+      farklıysa telefonu boşsa günceller (bilgi zenginleştirme).
+    - Zaten aynı contact varsa DOKUNMAZ (duplicate önleme).
+    - Entry oluşturma akışı bu fonksiyondan bağımsız — Entry HER ZAMAN
+      oluşur, buradan bir hata gelirse yakalanır ve loglanır (silinmez).
+    """
+    org_name = _norm(org_name)
+    contact_name = _norm(contact_name)
+    phone = _norm(contact_phone) or None
+    if not org_name or not contact_name:
+        return
+
+    # Kurum: case-insensitive match. Yoksa oluştur.
+    org = (
+        db.query(CustomerOrg)
+        .filter(CustomerOrg.name.ilike(org_name))
+        .first()
+    )
+    if not org:
+        org = CustomerOrg(name=org_name)
+        db.add(org)
+        db.flush()  # id'yi al
+
+    # Contact: aynı org altında aynı isim varsa mükerrer sayılır.
+    existing = (
+        db.query(CustomerContact)
+        .filter(CustomerContact.org_id == org.id)
+        .filter(CustomerContact.name.ilike(contact_name))
+        .first()
+    )
+    if existing:
+        # Var olan contact'ın telefonu boş, yeni gelen dolu → doldur
+        if phone and not existing.phone:
+            existing.phone = phone
+        return
+
+    # Yeni contact ekle
+    db.add(CustomerContact(
+        org_id=org.id,
+        name=contact_name,
+        phone=phone,
+    ))
 
 
 # Turkish display labels for auto-generated titles when the user doesn't supply one.
@@ -184,6 +244,26 @@ def create_entry(payload: EntryCreate, db: Session = Depends(get_db),
     db.add(entry)
     db.commit()
     db.refresh(entry)
+
+    # v0.9.8: Arayanlar girişinde İrtibat Listesi'ni otomatik güncelle.
+    # Duplicate contact önlenir, ama Entry her koşulda yaratılır (yukarıda
+    # commit edildi). Bu adım fail olsa bile Entry silinmez.
+    if entry.entry_type == EntryType.callers:
+        try:
+            _upsert_customer(
+                db,
+                entry.caller_org_name,
+                entry.caller_contact_name,
+                entry.caller_contact_phone,
+            )
+            db.commit()
+        except Exception:  # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).exception(
+                "Customer upsert failed for entry %s (entry saved OK)", entry.id,
+            )
+            db.rollback()
+
     audit(db, current, "entry.created", "entry", entry.id,
           {"type": entry.entry_type.value, "occurs_at": entry.occurs_at.isoformat() if entry.occurs_at else None})
     return _to_out(entry)

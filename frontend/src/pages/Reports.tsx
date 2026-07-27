@@ -361,11 +361,11 @@ export default function Reports() {
               className="input"
               value={subjectOverride}
               onChange={(e) => setSubjectOverride(e.target.value)}
-              placeholder={`Varsayılan: MSSP Vardiya Raporu — ${SHIFT_TYPE_LABEL[shiftTypeChoice]} (tarih)`}
+              placeholder={`Varsayılan: MSSP Vardiya Raporu - ${SHIFT_TYPE_LABEL[shiftTypeChoice]}`}
               maxLength={255}
             />
             <p className="text-xs text-gray-500 mt-1">
-              Boş bırakılırsa "MSSP Vardiya Raporu — {SHIFT_TYPE_LABEL[shiftTypeChoice]} (tarih)"
+              Boş bırakılırsa "MSSP Vardiya Raporu - {SHIFT_TYPE_LABEL[shiftTypeChoice]}"
               biçiminde oluşturulur.
             </p>
           </div>
