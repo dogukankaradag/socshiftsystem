@@ -21,12 +21,14 @@ import ResolveScheduledModal from '../components/ResolveScheduledModal';
 // tüm kararlar verildikten sonra orijinal aksiyonu çağırır.
 type GenerateOpts = { dispatch: boolean; schedule: boolean };
 
-// v0.9.5: Pre-dispatch Info karar modalı için backend response tipi
+// v0.9.5+v0.9.10: Pre-dispatch Info karar modalı için backend response tipi
 interface PendingInfoEntry {
   id: number;
+  shift_id: number;
   title: string | null;
   body: string | null;
   created_at: string;
+  is_carried_over: boolean;  // v0.9.10 — önceki vardiyadan mı taşındı?
 }
 
 function splitListInput(v: string): string[] {
@@ -584,9 +586,11 @@ function InfoDecisionModal({
             Bilgi girişleri için karar
           </h2>
           <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">
-            Bu vardiyada <b>{entries.length}</b> bilgi girişi var. Rapor gönderildikten
-            sonra bu girişler bir sonraki rapora <b>otomatik dahil edilmez</b>. Hangi
-            girişlerin bir sonraki rapora <b>taşınmasını istiyorsanız</b> işaretleyin.
+            Şu an açık (<b>{entries.length}</b>) bilgi girişi var — hem bu vardiya
+            hem önceki vardiyalardan aktarılanlar dahil. İşaretlediklerin bir
+            sonraki rapora da <b>taşınır</b> ve şu andaki raporda görünür.
+            İşaretlemediklerin ise şu andaki rapordan da <b>çıkarılır</b>, bir
+            daha da görünmez.
           </p>
         </div>
         <ul className="divide-y divide-gray-100 dark:divide-slate-700">
@@ -600,6 +604,16 @@ function InfoDecisionModal({
                   onChange={() => toggle(e.id)}
                 />
                 <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                    {e.is_carried_over && (
+                      <span className="text-xs font-semibold text-amber-700 bg-amber-50 rounded px-2 py-0.5 dark:text-amber-300 dark:bg-amber-900/30">
+                        Önceki vardiyadan
+                      </span>
+                    )}
+                    <span className="text-xs text-gray-400 dark:text-slate-500">
+                      Vardiya #{e.shift_id}
+                    </span>
+                  </div>
                   {e.title && (
                     <div className="font-medium text-gray-800 dark:text-slate-100 text-sm">
                       {e.title}
@@ -621,8 +635,8 @@ function InfoDecisionModal({
         <div className="px-5 py-3 border-t border-gray-200 dark:border-slate-700 flex items-center justify-between">
           <div className="text-xs text-gray-500 dark:text-slate-400">
             {keepIds.size === 0
-              ? 'Hepsi silinecek (bir sonraki rapora dahil olmayacak).'
-              : `${keepIds.size} adet giriş bir sonraki rapora taşınacak.`}
+              ? 'Hiçbiri işaretli değil → hepsi bu rapordan çıkarılıp temizlenecek.'
+              : `${keepIds.size} adet giriş bu rapora + bir sonrakine dahil edilecek. Kalan ${entries.length - keepIds.size} temizlenecek.`}
           </div>
           <div className="flex gap-2">
             <button

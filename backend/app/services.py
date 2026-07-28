@@ -108,7 +108,8 @@ def resolve_recipients(db: Session, shift: Shift,
 
 
 def generate_report(db: Session, shift: Shift, generated_by: Optional[User] = None,
-                    subject_override: Optional[str] = None) -> Report:
+                    subject_override: Optional[str] = None,
+                    keep_info_entry_ids: Optional[List[int]] = None) -> Report:
     """Build a Report row (status=draft) from the shift's current entries.
 
     Rapora ayrıca, `occurs_at > şimdi` olan diğer vardiyalardaki planlı
@@ -116,12 +117,12 @@ def generate_report(db: Session, shift: Shift, generated_by: Optional[User] = No
     3 gün sonra için girilen bir plan, araya giren her vardiya raporuna
     otomatik olarak taşınır ve operatöre hatırlatılır.
     """
-    # v0.9.5: Tek-seferlik türler (dispatch sonrası bir sonraki rapora
+    # v0.9.5+v0.9.10: Tek-seferlik türler (dispatch sonrası bir sonraki rapora
     # dahil edilmez). reported_at NULL olanlar rapora girer:
     #   - callers, dhs, iys, important_work → dispatch sonrası otomatik işaretlenir
-    #   - info                              → dispatch modal'ında kullanıcı seçer
-    # Diğer türler (ör. l2_escalation, ddos_transfer) reported_at'tan bağımsız
-    # her zaman dahil (DDoS için ayrı ResolveScheduledModal akışı çalışır).
+    #   - info                              → dispatch modal'ında kullanıcı seçer;
+    #                                         ayrıca ÖNCEKI vardiyalardan da carry
+    #                                         edilir (v0.9.10 — carry-over kuralı)
     _reset_types = (
         EntryType.callers,
         EntryType.dhs,
@@ -139,6 +140,31 @@ def generate_report(db: Session, shift: Shift, generated_by: Optional[User] = No
         .order_by(Entry.created_at.asc())
         .all()
     )
+
+    # v0.9.10: Önceki vardiyalardan kalan (reported_at NULL) Bilgi girişleri
+    # bu raporda da görünür. Kullanıcı dispatch modal'ında "silinsin" derse
+    # reported_at set edilir ve bir daha görünmez.
+    carried_info: List[Entry] = (
+        db.query(Entry)
+        .filter(Entry.shift_id != shift.id)
+        .filter(Entry.entry_type == EntryType.info)
+        .filter(Entry.reported_at.is_(None))
+        .order_by(Entry.created_at.asc())
+        .all()
+    )
+    if carried_info:
+        entries = list(entries) + carried_info
+
+    # v0.9.10: keep_info_entry_ids verildiyse (dispatch modal'ından geldi),
+    # bu listede olmayan info entry'lerini şu andaki rapordan da çıkar.
+    # Kullanıcı "silinsin" işaretlediği bilgi current dispatched rapora da
+    # dahil edilmez. Diğer türler etkilenmez.
+    if keep_info_entry_ids is not None:
+        keep_set = set(keep_info_entry_ids)
+        entries = [
+            e for e in entries
+            if e.entry_type != EntryType.info or e.id in keep_set
+        ]
     now_utc = datetime.now(timezone.utc)
     # "Yaklaşan Planlı İşler" listesi yalnızca **DDoS Taşıma** türü için
     # üretilir. v0.6.0'dan itibaren occurs_at sadece DDoS Taşıma'da
@@ -239,13 +265,14 @@ async def dispatch_report(db: Session, report: Report,
                 auto_marked, report.shift_id, report.id,
             )
 
-        # v0.9.5: Info entries — kullanıcı seçimine göre işaretle.
+        # v0.9.5+v0.9.10: Info entries — kullanıcı seçimine göre işaretle.
         # keep_info_entry_ids listesindekiler DOKUNULMAZ (bir sonrakine taşınır);
-        # diğer tüm reported_at=NULL info entry'leri işaretlenir.
+        # diğer tüm reported_at=NULL info entry'leri (TÜM shift'lerden) işaretlenir.
+        # v0.9.10: shift_id filtresi kaldırıldı — carry-over kuralı gereği önceki
+        # vardiyalardan aktarılan bilgiler de bu dispatch'te temizlenebilir.
         keep_ids = set(keep_info_entry_ids or [])
         info_query = (
             db.query(Entry)
-            .filter(Entry.shift_id == report.shift_id)
             .filter(Entry.entry_type == EntryType.info)
             .filter(Entry.reported_at.is_(None))
         )
@@ -257,8 +284,8 @@ async def dispatch_report(db: Session, report: Report,
         )
         if info_marked or keep_ids:
             log.info(
-                "Info entries: marked %d, kept %d for shift %s (report %s)",
-                info_marked, len(keep_ids), report.shift_id, report.id,
+                "Info entries (all shifts): marked %d, kept %d (report %s)",
+                info_marked, len(keep_ids), report.id,
             )
     except Exception as exc:  # noqa: BLE001
         log.exception("Dispatch failed for report %s", report.id)

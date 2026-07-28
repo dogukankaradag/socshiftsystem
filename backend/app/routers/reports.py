@@ -71,9 +71,12 @@ async def generate(
         audit(db, current, "shift.type_overridden", "shift", shift.id,
               {"from": previous, "to": payload.shift_type.value})
 
+    # v0.9.10: keep_info_entry_ids'i generate_report'a da geçir — dispatch
+    # modal'ından geliyorsa, "silinsin" işaretlenen info bu rapordan da çıkar.
     report = generate_report(
         db, shift, generated_by=current,
         subject_override=payload.subject_override,
+        keep_info_entry_ids=payload.keep_info_entry_ids if payload.dispatch else None,
     )
 
     to_override = [str(e) for e in payload.to_recipients] if payload.to_recipients else None
@@ -142,9 +145,12 @@ async def dispatch(
 
 class PendingInfoEntry(BaseModel):
     id: int
+    shift_id: int
     title: Optional[str]
     body: Optional[str]
     created_at: datetime
+    # v0.9.10: bilgi bu vardiyadan mı, önceki vardiyadan carry-over mu?
+    is_carried_over: bool = False
 
 
 @router.get("/pending-info/{shift_id}", response_model=List[PendingInfoEntry])
@@ -153,12 +159,13 @@ def list_pending_info(
     db: Session = Depends(get_db),
     _=Depends(require_operator),
 ):
-    """v0.9.5: Bir shift'in henüz raporlanmamış (reported_at=NULL) Info
-    girişlerini döner. Dispatch modal'ında kullanıcıya sunulur —
-    kullanıcı hangilerinin bir sonraki rapora taşınacağına karar verir."""
+    """v0.9.5+v0.9.10: TÜM shift'lerdeki henüz raporlanmamış (reported_at=NULL)
+    Bilgi girişlerini döner. shift_id parametresi 'current shift' bilgisi için
+    kullanılır — is_carried_over bayrağıyla frontend hangilerinin önceki
+    vardiyadan aktarıldığını gösterebilir.
+    """
     rows = (
         db.query(Entry)
-        .filter(Entry.shift_id == shift_id)
         .filter(Entry.entry_type == EntryType.info)
         .filter(Entry.reported_at.is_(None))
         .order_by(Entry.created_at.asc())
@@ -166,7 +173,12 @@ def list_pending_info(
     )
     return [
         PendingInfoEntry(
-            id=r.id, title=r.title, body=r.body, created_at=r.created_at,
+            id=r.id,
+            shift_id=r.shift_id,
+            title=r.title,
+            body=r.body,
+            created_at=r.created_at,
+            is_carried_over=(r.shift_id != shift_id),
         )
         for r in rows
     ]
