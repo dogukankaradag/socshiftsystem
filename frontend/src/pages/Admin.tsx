@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react';
 import {
-  api, MplsTeam, ROLE_LABEL, Role, ShiftType, SHIFT_TYPE_LABEL, User,
+  api, extractApiError, MplsTeam, ROLE_LABEL, Role, ShiftType, SHIFT_TYPE_LABEL, User,
 } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 
@@ -23,16 +23,35 @@ export default function Admin() {
   const [lists, setLists] = useState<MailingList[]>([]);
   const [mplsTeams, setMplsTeams] = useState<MplsTeam[]>([]);
   const [tab, setTab] = useState<'users' | 'mailing' | 'mpls'>('users');
+  // v0.9.14: load hatası olursa sayfa beyaz kalmasın
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   async function load() {
-    const [u, m, p] = await Promise.all([
+    // v0.9.14: bir API başarısız olsa bile diğerleri denensin ve UI'da
+    // hata göster. Promise.all reject olursa React crash oluyordu (beyaz sayfa).
+    setLoadError(null);
+    const results = await Promise.allSettled([
       api.get('/users'),
       api.get('/mailing-lists'),
       api.get('/mpls-teams', { params: { only_active: false } }),
     ]);
-    setUsers(u.data);
-    setLists(m.data);
-    setMplsTeams(p.data);
+    const errs: string[] = [];
+    if (results[0].status === 'fulfilled') {
+      setUsers(Array.isArray(results[0].value.data) ? results[0].value.data : []);
+    } else {
+      errs.push('Kullanıcı listesi yüklenemedi');
+    }
+    if (results[1].status === 'fulfilled') {
+      setLists(Array.isArray(results[1].value.data) ? results[1].value.data : []);
+    } else {
+      errs.push('Mail listeleri yüklenemedi');
+    }
+    if (results[2].status === 'fulfilled') {
+      setMplsTeams(Array.isArray(results[2].value.data) ? results[2].value.data : []);
+    } else {
+      errs.push('MPLS ekipleri yüklenemedi');
+    }
+    if (errs.length) setLoadError(errs.join(' · '));
   }
   useEffect(() => {
     load();
@@ -47,6 +66,11 @@ export default function Admin() {
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold">Yönetim</h1>
+      {loadError && (
+        <div className="card border-l-4 border-red-400 text-sm text-red-700 dark:text-red-300">
+          <b>Yükleme uyarısı:</b> {loadError}
+        </div>
+      )}
       <div className="flex gap-2 border-b border-gray-200">
         {(['users', 'mailing', 'mpls'] as const).map((t) => (
           <button
@@ -192,7 +216,7 @@ function NewMplsTeamForm({ onDone }: { onDone: () => void }) {
       });
       onDone();
     } catch (e: any) {
-      setErr(e?.response?.data?.detail || 'Ekleme başarısız');
+      setErr(extractApiError(e, 'Ekleme başarısız'));
     } finally {
       setSaving(false);
     }
@@ -260,7 +284,7 @@ function MplsTeamEditModal({
       });
       onSaved();
     } catch (e: any) {
-      setErr(e?.response?.data?.detail || 'Güncelleme başarısız');
+      setErr(extractApiError(e, 'Güncelleme başarısız'));
     } finally {
       setSaving(false);
     }
@@ -305,6 +329,7 @@ function MplsTeamEditModal({
 
 function UsersTab({ users, reload }: { users: User[]; reload: () => void }) {
   const { user: me } = useAuth();
+  const isSuper = me?.role === 'super_admin';
   const [showNew, setShowNew] = useState(false);
   const [editing, setEditing] = useState<User | null>(null);
 
@@ -316,21 +341,59 @@ function UsersTab({ users, reload }: { users: User[]; reload: () => void }) {
     if (u.is_active) {
       if (!confirm(`${u.full_name} pasifleştirilecek (giriş yapamayacak). Onaylıyor musunuz?`))
         return;
-      await api.delete(`/users/${u.id}`);
+      try {
+        await api.delete(`/users/${u.id}`);
+      } catch (err: any) {
+        alert(err?.response?.data?.detail || 'Pasifleştirme başarısız');
+      }
     } else {
-      await api.patch(`/users/${u.id}`, { is_active: true });
+      try {
+        await api.patch(`/users/${u.id}`, { is_active: true });
+      } catch (err: any) {
+        alert(err?.response?.data?.detail || 'Aktifleştirme başarısız');
+      }
     }
     reload();
   }
 
+  // v0.9.11: HARD-DELETE (kalıcı silme) — sadece Super Admin.
+  async function hardDelete(u: User) {
+    if (u.id === me?.id) {
+      alert('Kendi hesabınızı silemezsiniz.');
+      return;
+    }
+    if (!confirm(
+      `${u.full_name} (${u.email}) KALICI OLARAK silinecek.\n\n` +
+      `Bu işlem GERİ ALINAMAZ. Kullanıcının vardiya girişleri / olay ` +
+      `kayıtları varsa silme başarısız olur; o durumda 'Pasifleştir' ` +
+      `seçeneğini kullanın.\n\nDevam etmek istediğinize emin misiniz?`
+    )) return;
+    try {
+      await api.delete(`/users/${u.id}/hard`);
+      reload();
+    } catch (err: any) {
+      alert(err?.response?.data?.detail || 'Silme başarısız');
+    }
+  }
+
   return (
     <div className="space-y-3">
-      <div className="flex justify-end">
-        <button className="btn-primary" onClick={() => setShowNew(true)}>
-          + Yeni Kullanıcı
-        </button>
-      </div>
-      {showNew && <NewUserForm onDone={() => { setShowNew(false); reload(); }} />}
+      {isSuper && (
+        <div className="flex justify-end">
+          <button className="btn-primary" onClick={() => setShowNew(true)}>
+            + Yeni Kullanıcı
+          </button>
+        </div>
+      )}
+      {showNew && isSuper && (
+        <NewUserForm onDone={() => { setShowNew(false); reload(); }} />
+      )}
+      {!isSuper && (
+        <div className="card text-sm text-gray-600 dark:text-slate-300">
+          Standart kullanıcı olarak yalnızca kendi profilinizi
+          görüntüleyebilir ve parolanızı değiştirebilirsiniz.
+        </div>
+      )}
       <div className="card p-0 overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500">
@@ -344,41 +407,43 @@ function UsersTab({ users, reload }: { users: User[]; reload: () => void }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {users.map((u) => (
+            {users.map((u) => {
+              const isSelf = u.id === me?.id;
+              // v0.9.11: Standart user rol/aktiflik değiştiremez; sadece kendi
+              // parolasını "Düzenle" ile değiştirebilir.
+              const canChangeRole = isSuper;
+              const canToggle = isSuper;
+              const canEdit = isSuper || isSelf;
+              const canDelete = isSuper && !isSelf;
+              return (
               <tr key={u.id} className={u.is_active ? '' : 'opacity-60'}>
                 <td className="px-4 py-2 text-gray-500">#{u.id}</td>
                 <td className="px-4 py-2">{u.email}</td>
                 <td className="px-4 py-2">{u.full_name}</td>
                 <td className="px-4 py-2">
-                  <select
-                    className="input py-1 text-xs"
-                    value={u.role}
-                    onChange={async (e) => {
-                      try {
-                        await api.patch(`/users/${u.id}`, { role: e.target.value });
-                        reload();
-                      } catch (err: any) {
-                        alert(err?.response?.data?.detail || 'Rol değiştirilemedi');
-                        reload();
-                      }
-                    }}
-                  >
-                    {/* Standart kullanıcı super_admin atayamaz; super_admin
-                        kullanıcı her iki rolü de atayabilir. */}
-                    {(me?.role === 'super_admin' ? ALL_ROLES : STANDARD_ONLY_ROLES).map((r) => (
-                      <option key={r} value={r}>
-                        {ROLE_LABEL[r]}
-                      </option>
-                    ))}
-                    {/* Eğer mevcut kullanıcı super_admin ise ve current me
-                        super_admin değilse, dropdown opsiyonu eksik olmasın
-                        diye o değeri ayrıca göster. */}
-                    {me?.role !== 'super_admin' && u.role === 'super_admin' && (
-                      <option value="super_admin" disabled>
-                        {ROLE_LABEL.super_admin} (sadece Super Admin değiştirebilir)
-                      </option>
-                    )}
-                  </select>
+                  {canChangeRole ? (
+                    <select
+                      className="input py-1 text-xs"
+                      value={u.role}
+                      onChange={async (e) => {
+                        try {
+                          await api.patch(`/users/${u.id}`, { role: e.target.value });
+                          reload();
+                        } catch (err: any) {
+                          alert(err?.response?.data?.detail || 'Rol değiştirilemedi');
+                          reload();
+                        }
+                      }}
+                    >
+                      {ALL_ROLES.map((r) => (
+                        <option key={r} value={r}>
+                          {ROLE_LABEL[r]}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="text-xs">{ROLE_LABEL[u.role]}</span>
+                  )}
                 </td>
                 <td className="px-4 py-2">
                   <span
@@ -392,25 +457,39 @@ function UsersTab({ users, reload }: { users: User[]; reload: () => void }) {
                   </span>
                 </td>
                 <td className="px-4 py-2 whitespace-nowrap space-x-2">
-                  <button
-                    className="text-xs text-gray-700 hover:text-brand-700"
-                    onClick={() => setEditing(u)}
-                  >
-                    Düzenle
-                  </button>
-                  <button
-                    className={`text-xs ${
-                      u.is_active ? 'text-red-600' : 'text-green-700'
-                    } hover:underline`}
-                    onClick={() => toggleActive(u)}
-                    disabled={u.id === me?.id}
-                    title={u.id === me?.id ? 'Kendi hesabınız' : ''}
-                  >
-                    {u.is_active ? 'Pasifleştir' : 'Aktifleştir'}
-                  </button>
+                  {canEdit && (
+                    <button
+                      className="text-xs text-gray-700 hover:text-brand-700"
+                      onClick={() => setEditing(u)}
+                    >
+                      Düzenle
+                    </button>
+                  )}
+                  {canToggle && (
+                    <button
+                      className={`text-xs ${
+                        u.is_active ? 'text-orange-600' : 'text-green-700'
+                      } hover:underline`}
+                      onClick={() => toggleActive(u)}
+                      disabled={isSelf}
+                      title={isSelf ? 'Kendi hesabınız' : ''}
+                    >
+                      {u.is_active ? 'Pasifleştir' : 'Aktifleştir'}
+                    </button>
+                  )}
+                  {canDelete && (
+                    <button
+                      className="text-xs text-red-600 hover:underline font-medium"
+                      onClick={() => hardDelete(u)}
+                      title="Kullanıcıyı KALICI olarak sil (geri alınamaz)"
+                    >
+                      Sil
+                    </button>
+                  )}
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -436,16 +515,35 @@ function NewUserForm({ onDone }: { onDone: () => void }) {
   const [name, setName] = useState('');
   const [pw, setPw] = useState('');
   const [role, setRole] = useState<Role>('standard');
+  // v0.9.13: standard user için oluşturulacak Personnel kaydının lokasyonu
+  const [personnelLocation, setPersonnelLocation] = useState<'istanbul' | 'ankara'>('istanbul');
   const [error, setError] = useState<string | null>(null);
+  // v0.9.14: double-submit önleme — beyaz sayfa bug'ının kökeni buydu
+  const [saving, setSaving] = useState(false);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    if (saving) return;  // v0.9.14: aynı anda iki istek atma
     setError(null);
+    setSaving(true);
     try {
-      await api.post('/users', { email, full_name: name, password: pw, role });
+      const payload: any = {
+        email,
+        full_name: name,
+        password: pw,
+        role,
+      };
+      // Sadece standard rolde Personnel oluşturulacağı için lokasyonu o
+      // durumda gönderiyoruz (super_admin'de backend zaten göz ardı eder).
+      if (role === 'standard') {
+        payload.personnel_location = personnelLocation;
+      }
+      await api.post('/users', payload);
       onDone();
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Başarısız');
+      setError(extractApiError(err, 'Kullanıcı oluşturulamadı'));
+    } finally {
+      setSaving(false);
     }
   }
   return (
@@ -460,7 +558,7 @@ function NewUserForm({ onDone }: { onDone: () => void }) {
       />
       <input
         className="input"
-        placeholder="ad soyad"
+        placeholder="ad soyad (ör: Doğukan Karadağ)"
         value={name}
         onChange={(e) => setName(e.target.value)}
         required
@@ -480,13 +578,33 @@ function NewUserForm({ onDone }: { onDone: () => void }) {
           </option>
         ))}
       </select>
+      {role === 'standard' && (
+        <div className="col-span-2">
+          <label className="label text-xs">
+            Lokasyon (Aylık Vardiya + Dağıtıcı Listesi için)
+          </label>
+          <select
+            className="input"
+            value={personnelLocation}
+            onChange={(e) => setPersonnelLocation(e.target.value as 'istanbul' | 'ankara')}
+          >
+            <option value="istanbul">İstanbul</option>
+            <option value="ankara">Ankara</option>
+          </select>
+          <p className="text-xs text-gray-500 mt-1">
+            Kullanıcının adının ilk kelimesi Personel olarak eklenir (ör.
+            "Doğukan Karadağ" → "Doğukan"). Sonradan Personel Yönet'ten
+            değiştirilebilir.
+          </p>
+        </div>
+      )}
       {error && <div className="col-span-2 text-sm text-red-600">{error}</div>}
       <div className="col-span-2 flex justify-end gap-2">
-        <button type="button" className="btn-ghost" onClick={onDone}>
+        <button type="button" className="btn-ghost" onClick={onDone} disabled={saving}>
           İptal
         </button>
-        <button type="submit" className="btn-primary">
-          Oluştur
+        <button type="submit" className="btn-primary" disabled={saving}>
+          {saving ? 'Oluşturuluyor…' : 'Oluştur'}
         </button>
       </div>
     </form>
@@ -503,7 +621,9 @@ function UserEditModal({
   onSaved: () => void;
 }) {
   const { user: me } = useAuth();
-  const availableRoles = me?.role === 'super_admin' ? ALL_ROLES : STANDARD_ONLY_ROLES;
+  // v0.9.11: Standard user yalnızca kendi parolasını değiştirebilir.
+  // Super Admin herkesi tüm alanlarda düzenler.
+  const isSuper = me?.role === 'super_admin';
   const [name, setName] = useState(user.full_name);
   const [role, setRole] = useState<Role>(user.role);
   const [pw, setPw] = useState('');
@@ -516,7 +636,12 @@ function UserEditModal({
     setErr(null);
     setSaving(true);
     try {
-      const payload: any = { full_name: name, role, is_active: active };
+      const payload: any = {};
+      if (isSuper) {
+        payload.full_name = name;
+        payload.role = role;
+        payload.is_active = active;
+      }
       if (pw) {
         if (pw.length < 8) {
           setErr('Parola en az 8 karakter olmalı.');
@@ -525,10 +650,15 @@ function UserEditModal({
         }
         payload.password = pw;
       }
+      if (Object.keys(payload).length === 0) {
+        setErr('Değiştirilecek bir şey seçmediniz.');
+        setSaving(false);
+        return;
+      }
       await api.patch(`/users/${user.id}`, payload);
       onSaved();
     } catch (e: any) {
-      setErr(e?.response?.data?.detail || 'Güncelleme başarısız');
+      setErr(extractApiError(e, 'Güncelleme başarısız'));
     } finally {
       setSaving(false);
     }
@@ -541,7 +671,9 @@ function UserEditModal({
         className="bg-white rounded-lg shadow-xl w-full max-w-md p-5 space-y-3"
       >
         <div className="flex items-center justify-between">
-          <h2 className="font-semibold text-gray-900">Kullanıcıyı Düzenle</h2>
+          <h2 className="font-semibold text-gray-900">
+            {isSuper ? 'Kullanıcıyı Düzenle' : 'Parolamı Değiştir'}
+          </h2>
           <button type="button" className="text-gray-500" onClick={onClose}>
             ✕
           </button>
@@ -552,42 +684,52 @@ function UserEditModal({
           <input className="input bg-gray-50" value={user.email} disabled />
           <p className="text-xs text-gray-500 mt-1">E-posta değiştirilemez.</p>
         </div>
-        <div>
-          <label className="label">Ad Soyad</label>
-          <input
-            className="input"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-          />
-        </div>
-        <div>
-          <label className="label">Rol</label>
-          <select
-            className="input"
-            value={role}
-            onChange={(e) => setRole(e.target.value as Role)}
-            disabled={user.role === 'super_admin' && me?.role !== 'super_admin'}
-          >
-            {availableRoles.map((r) => (
-              <option key={r} value={r}>
-                {ROLE_LABEL[r]}
-              </option>
-            ))}
-            {/* Bu kullanıcı super_admin ama mevcut me super_admin değilse,
-                rolü disabled-select olarak göster ki kaybolmasın. */}
-            {user.role === 'super_admin' && me?.role !== 'super_admin' && (
-              <option value="super_admin" disabled>
-                {ROLE_LABEL.super_admin}
-              </option>
-            )}
-          </select>
-          {me?.role !== 'super_admin' && (
-            <p className="text-xs text-gray-500 mt-1">
-              Super Admin atama yetkisi yalnızca Super Admin kullanıcılarındadır.
-            </p>
-          )}
-        </div>
+        {isSuper && (
+          <>
+            <div>
+              <label className="label">Ad Soyad</label>
+              <input
+                className="input"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+              />
+            </div>
+            <div>
+              <label className="label">Rol</label>
+              <select
+                className="input"
+                value={role}
+                onChange={(e) => setRole(e.target.value as Role)}
+              >
+                {ALL_ROLES.map((r) => (
+                  <option key={r} value={r}>
+                    {ROLE_LABEL[r]}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </>
+        )}
+        {!isSuper && (
+          <>
+            <div>
+              <label className="label">Ad Soyad</label>
+              <input className="input bg-gray-50" value={user.full_name} disabled />
+              <p className="text-xs text-gray-500 mt-1">
+                Ad Soyad değişikliği için Super Admin ile iletişime geçin.
+              </p>
+            </div>
+            <div>
+              <label className="label">Rol</label>
+              <input
+                className="input bg-gray-50"
+                value={ROLE_LABEL[user.role]}
+                disabled
+              />
+            </div>
+          </>
+        )}
         <div>
           <label className="label">Yeni Parola (boş bırakırsanız değişmez)</label>
           <input
@@ -598,14 +740,16 @@ function UserEditModal({
             placeholder="en az 8 karakter"
           />
         </div>
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={active}
-            onChange={(e) => setActive(e.target.checked)}
-          />
-          Aktif
-        </label>
+        {isSuper && (
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={active}
+              onChange={(e) => setActive(e.target.checked)}
+            />
+            Aktif
+          </label>
+        )}
 
         {err && <div className="text-sm text-red-600">{err}</div>}
 
@@ -779,7 +923,7 @@ function MailingEditModal({
       });
       onSaved();
     } catch (e: any) {
-      setErr(e?.response?.data?.detail || 'Güncelleme başarısız');
+      setErr(extractApiError(e, 'Güncelleme başarısız'));
     } finally {
       setSaving(false);
     }

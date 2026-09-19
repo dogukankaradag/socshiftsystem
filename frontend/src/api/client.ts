@@ -4,6 +4,37 @@ const baseURL = (import.meta.env.VITE_API_BASE_URL as string) || '/api';
 
 export const api = axios.create({ baseURL, timeout: 30000 });
 
+/**
+ * v0.9.16: FastAPI hata mesajını okunabilir string'e çevirir.
+ * 422 Validation Error → array of {type, loc, msg, ...} objeleri döner;
+ * bu React'te child olarak render edilirse "Objects are not valid as React
+ * child" (Error #31) crash yapar. Bu helper her durumda string döner.
+ */
+export function extractApiError(err: any, fallback = 'İşlem başarısız'): string {
+  const detail = err?.response?.data?.detail;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((d: any) => {
+        if (typeof d === 'string') return d;
+        const loc = Array.isArray(d?.loc)
+          ? d.loc.filter((x: any) => x !== 'body').join('.')
+          : '';
+        const msg = d?.msg || d?.message || JSON.stringify(d);
+        return loc ? `${loc}: ${msg}` : msg;
+      })
+      .join(' · ');
+  }
+  if (detail && typeof detail === 'object') {
+    try {
+      return JSON.stringify(detail);
+    } catch {
+      return fallback;
+    }
+  }
+  return err?.message || fallback;
+}
+
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('shift_token');
   if (token) {

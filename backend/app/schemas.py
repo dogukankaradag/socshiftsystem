@@ -31,6 +31,9 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str = Field(min_length=8)
+    # v0.9.13: standard user oluşturulurken otomatik yaratılan Personnel
+    # kaydının lokasyonu. super_admin kullanıcılarda göz ardı edilir.
+    personnel_location: Optional[PersonnelLocation] = PersonnelLocation.istanbul
 
 
 class UserUpdate(BaseModel):

@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from ..auth import require_authenticated, require_super_admin
 from ..database import get_db
+from ..daily_duty_generator import generate_month as generate_daily_duty_month
 from ..models import MonthlyShiftAssignment, Personnel, User
 from ..monthly_shift_generator import generate_month
 from ..schemas import (
@@ -155,6 +156,21 @@ def generate_schedule(
     )
 
 
+def _refresh_daily_duty_for_day(db: Session, day: date) -> None:
+    """v0.9.12: Aylık Vardiya'da bir gün değiştiğinde, o ayın Dağıtıcı
+    Listesi'ni manuellerini koruyarak yeniden üret. Bu, aylık vardiya ↔
+    dağıtıcı otomatik senkronizasyonunu sağlar — kullanıcının 'Otomatik
+    Üret'e tıklamasına gerek kalmaz.
+    """
+    try:
+        generate_daily_duty_month(db, day.year, day.month, overwrite_manual=False)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception(
+            "Daily duty auto-refresh failed for %s-%02d", day.year, day.month,
+        )
+
+
 @router.post("", response_model=MonthlyShiftAssignmentOut, status_code=201)
 def create_assignment(
     payload: MonthlyShiftAssignmentCreate,
@@ -186,6 +202,7 @@ def create_assignment(
     db.commit()
     db.refresh(a)
     audit(db, current, "monthly_shift.created_manual", "monthly_shift", a.id, {})
+    _refresh_daily_duty_for_day(db, a.day)  # v0.9.12
     return _to_out(a)
 
 
@@ -210,6 +227,7 @@ def update_assignment(
     db.commit()
     db.refresh(a)
     audit(db, current, "monthly_shift.updated", "monthly_shift", a.id, data)
+    _refresh_daily_duty_for_day(db, a.day)  # v0.9.12
     return _to_out(a)
 
 
@@ -222,6 +240,8 @@ def delete_assignment(
     a = db.query(MonthlyShiftAssignment).filter(MonthlyShiftAssignment.id == assignment_id).first()
     if not a:
         raise HTTPException(404, detail="Atama bulunamadı.")
+    day = a.day  # v0.9.12: silmeden önce gün bilgisini yakala
     db.delete(a)
     db.commit()
     audit(db, current, "monthly_shift.deleted", "monthly_shift", assignment_id, {})
+    _refresh_daily_duty_for_day(db, day)  # v0.9.12

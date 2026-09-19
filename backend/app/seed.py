@@ -169,13 +169,23 @@ def _seed_personnel(db: Session) -> None:
 
 
 def _deactivate_stale_personnel(db: Session) -> None:
-    """Config listesinde YER ALMAYAN personeli is_active=False yapar.
+    """Config listesinde VE aktif user listesinde YER ALMAYAN Personnel'i
+    is_active=False yapar. v0.9.12: user-tabanlı Personnel'ler de korunur.
 
-    Böylece kadrodan çıkarılan kişiler config'ten silinerek Aylık Vardiya
-    listesinden otomatik düşer. Kayıtları silmez — geçmiş atamalar korunur.
+    Böylece:
+      - Config'ten çıkarılan personel Aylık Vardiya'dan düşer
+      - Ama User'dan gelmiş Personnel'ler config'te olmasa bile korunur
+      - Kayıtlar silinmez — geçmiş atamalar bütün kalır
     """
     cfg = get_personnel_config()
     active_names = {p.full_name for p in cfg.personnel}
+    # v0.9.12: Aktif standard user'ların first_name'lerini de koruma listesine ekle
+    for u in db.query(User).filter(User.is_active.is_(True)).all():
+        if u.role == Role.super_admin:
+            continue
+        first = (u.full_name or "").strip().split(" ")[0] if (u.full_name or "").strip() else ""
+        if first:
+            active_names.add(first)
     stale = (
         db.query(Personnel)
         .filter(Personnel.is_active.is_(True))
@@ -186,7 +196,7 @@ def _deactivate_stale_personnel(db: Session) -> None:
         p.is_active = False
     if stale:
         db.commit()
-        log.info("Deactivated %d stale personnel (not in config)", len(stale))
+        log.info("Deactivated %d stale personnel (not in config, no active user)", len(stale))
 
 
 def seed_defaults(db: Session) -> None:
